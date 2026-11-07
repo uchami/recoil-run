@@ -32,7 +32,9 @@ var entities: Array = [] # resortes, bichos, cofres, balas sueltas, poderes
 var camera: Camera3D
 var hud: Hud
 var sfx: Sfx
-var streak := 0 # headshots seguidos
+var streak := 0 # headshots seguidos (los tiros errados no la cortan; un kill al cuerpo sí)
+var kill_streak := 0 # tiros seguidos que mataron algo (un tiro que no mata la corta)
+var last_power := ""
 var powers := {} # poder -> segundos que le quedan
 
 var _queued_shots := 0
@@ -166,15 +168,19 @@ func shoot() -> void:
 
 	var hit := _raycast(from, from + dir3 * Config.BULLET_RANGE)
 	var end := from + dir3 * Config.BULLET_RANGE
+	var killed := false
 	if not hit.is_empty():
 		end = hit.position
 		var c: Object = hit.collider
 		if c and c.has_method("shot"):
-			_on_hit(c.shot(hit, d), end)
+			killed = _on_hit(c.shot(hit, d), end)
 		else:
 			_fx_puff(end, Color("55555f"), 8, 0.5, false)
 	_fx_tracer(from, end)
 	_fx_flash(from)
+	kill_streak = kill_streak + 1 if killed else 0
+	if streak >= Config.STREAK_FOR_POWER or kill_streak >= Config.STREAK_FOR_POWER:
+		grant_power(end)
 
 
 ## Lo que pueden pegar las balas: piso, personajes, cofres y bichos (áreas).
@@ -185,7 +191,11 @@ func _raycast(from: Vector3, to: Vector3) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
-func _on_hit(res: Dictionary, point: Vector3) -> void:
+const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill"]
+
+
+## Aplica el resultado de un tiro. Devuelve true si mató algo.
+func _on_hit(res: Dictionary, point: Vector3) -> bool:
 	var reward: int = res.get("reward", 0)
 	var above := point + Vector3(0, 0.4, 0)
 	match res.get("result", ""):
@@ -199,9 +209,6 @@ func _on_hit(res: Dictionary, point: Vector3) -> void:
 			hud.popup_world(camera, above, "HEADSHOT! +%d" % reward, "headshot")
 			sfx.play("headshot")
 			sfx.play("slowmo", -6.0, 1.0, 0.0)
-			if streak % Config.STREAK_FOR_POWER == 0:
-				var power: String = ["infinite", "laser", "ammo15", "untouchable"].pick_random()
-				spawn_pickup("power:" + power, point + Vector3(0, 0.6, 0), Vector3.ZERO, true)
 		"kill":
 			kills += 1
 			streak = 0
@@ -230,6 +237,7 @@ func _on_hit(res: Dictionary, point: Vector3) -> void:
 	if reward > 0:
 		ammo += reward
 		hud.bump_ammo()
+	return res.get("result", "") in KILL_RESULTS
 
 
 # --- daño, objetos y poderes (los llaman las cosas del mundo) ---
@@ -269,15 +277,23 @@ func spring_launch(_spring: Node3D, away: float) -> void:
 
 
 func collect(p: Pickup) -> void:
-	if p.kind == "ammo":
-		ammo += 1
-		sfx.play("pickup", -2.0, 1.0, 0.1)
-		hud.bump_ammo()
-	else:
-		_activate_power(p.kind.trim_prefix("power:"), p.global_position)
+	ammo += 1
+	sfx.play("pickup", -2.0, 1.0, 0.1)
+	hud.bump_ammo()
+
+
+const POWERS := ["infinite", "laser", "ammo15", "untouchable"]
+
+
+## Un poder random del pool, aplicado al instante. Reinicia las dos rachas.
+func grant_power(at: Vector3) -> void:
+	streak = 0
+	kill_streak = 0
+	_activate_power(POWERS.pick_random(), at)
 
 
 func _activate_power(power: String, at: Vector3) -> void:
+	last_power = power
 	sfx.play("powerup")
 	var names := {"infinite": "¡BALAS INFINITAS!", "laser": "¡MIRILLA LÁSER!", "ammo15": "+15 BALAS", "untouchable": "¡INTOCABLE!"}
 	hud.popup_world(camera, at + Vector3(0, 0.8, 0), names.get(power, power), "headshot")

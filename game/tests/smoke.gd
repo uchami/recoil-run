@@ -662,30 +662,41 @@ func test_trap_chest() -> void:
 	await despawn(m)
 
 
-func test_power_streak() -> void:
-	print("3 headshots seguidos => poder")
+## Dispara una secuencia: "h" = headshot, "b" = kill al cuerpo, "m" = tiro errado.
+## Devuelve en qué tiro (1-based) se aplicó un poder, o 0.
+func shoot_sequence(seq: String) -> int:
 	var m := await spawn()
 	clear_world(m)
 	await physics_frame
-	for i in 3:
-		var e: Enemy = put(m, "plain", 4.0 + i * 1.5)
-		await physics_frame
-		await fire_at(m, Vector2(0.0, 1.7), e.global_position + Vector3(0, Enemy.HEAD_Y, 0))
+	var got := 0
+	for i in seq.length():
+		var k := seq[i]
+		m.last_power = ""
+		if k == "m":
+			await fire_at(m, Vector2(0.0, 3.0), Vector3(10.0, 12.0, 0.0)) # al cielo
+		else:
+			var e: Enemy = put(m, "plain", 4.0 + i * 1.2)
+			await physics_frame
+			var target := e.global_position + (Vector3(0, Enemy.HEAD_Y, 0) if k == "h" else Vector3(0, 0.7, 0))
+			await fire_at(m, Vector2(0.0, target.y), target)
 		Engine.time_scale = 1.0
 		m._slowmo_left = 0.0
-		var powers: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Pickup and n.kind.begins_with("power:"))
-		check(powers.size() == (1 if i == 2 else 0), "headshot %d: poderes sueltos = %d" % [i + 1, powers.size()])
-	check(m.streak == 3, "racha = 3")
+		if m.last_power != "" and got == 0:
+			got = i + 1
 	await despawn(m)
-	# un kill al cuerpo corta la racha
-	m = await spawn()
-	clear_world(m)
-	await physics_frame
-	m.streak = 2
-	var e2: Enemy = put(m, "plain", 4.0)
-	await physics_frame
-	await fire_at(m, Vector2(0.0, 0.9), e2.global_position + Vector3(0, 0.7, 0))
-	check(m.streak == 0, "un kill al cuerpo corta la racha")
+	return got
+
+
+func test_power_streak() -> void:
+	print("rachas => poder automático")
+	check(await shoot_sequence("hhh") == 3, "3 headshots seguidos: poder al 3º")
+	check(await shoot_sequence("hmhmh") == 5, "la racha de headshots perdona los tiros errados")
+	check(await shoot_sequence("hbmhh") == 0, "un kill al cuerpo corta la racha de headshots")
+	check(await shoot_sequence("bbb") == 3, "3 kills en 3 tiros: poder al 3º")
+	check(await shoot_sequence("bbmb") == 0, "la racha de kills no perdona los errados")
+	check(await shoot_sequence("hhhhh") == 3, "al dar un poder se reinician las rachas (no da otro al 4º/5º)")
+	var m := await spawn()
+	check(m.entities.all(func(n): return not (is_instance_valid(n) and n is Pickup)), "no hay que recogerlo: se aplica solo")
 	await despawn(m)
 
 
@@ -714,11 +725,6 @@ func test_powers() -> void:
 	m.powers.infinite = 0.01
 	await wait_s(0.1)
 	check(not m.power_on("infinite"), "los poderes se terminan")
-	# juntar el orbe da el poder
-	var p: Pickup = m.spawn_pickup("power:laser", m.gun.global_position + Vector3(0.3, 0, 0), Vector3.ZERO, true)
-	m.powers.erase("laser")
-	await wait_s(0.3)
-	check(m.power_on("laser"), "tocar el orbe activa el poder")
 	await despawn(m)
 
 
