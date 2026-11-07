@@ -43,8 +43,8 @@ adb install -r ../build/recoil-run.apk
   de intentos ordenado por distancia, con la altura y las balas máximas de cada uno.
 - Física "lunar": gravedad 6.5 y caída máxima de 10 m/s, para tener tiempo de maniobrar en el aire.
 - Piso infinito: el arranque es fijo (plano, con los 3 personajes); después, bloques de altura random
-  entre -6 y 10 m (paredes de hasta 3 m para arriba, bajadas de hasta 5 m) con huecos (~30 % de las veces,
-  largo random de 3 a 14 m, hasta 20 m con la distancia) y un personaje cada 7–14 m. Cada partida es un piso distinto.
+  sin límite (paredes de hasta 3 m para arriba, bajadas de hasta 5 m) con huecos (~30 % de las veces,
+  largo random de 3 a 14 m, hasta 20 m con la distancia) y algo cada 7–14 m. Cada partida es un piso distinto.
   Cerca de un hueco la cámara se aleja para que se vea dónde aterrizar.
 
 ### Enemigos y cosas
@@ -55,13 +55,21 @@ adb install -r ../build/recoil-run.apk
 | Con espada | Si te acercás, te pega: -1 bala y te empuja |
 | Con escudo | El escudo (del lado de donde venís) rebota las balas: hay que darle a la cabeza |
 | Con casco | El casco rebota las balas: hay que darle al torso |
-| Resorte | Si lo tocás te manda bastantes metros para atrás |
+| Resorte | Pared vertical: te devuelve para atrás; cuanto más fuerte chocás, más fuerte te empuja y más te hace girar |
+| Ventilador | Pasados los 500 m, a veces. Te sube hasta la altura donde empiezan los cohetes |
 | Murciélago | Revolotea. Si te choca se muere y te saca 1 bala. De un tiro: +1 |
 | Halcón | Cuando te ve, toma tu posición y va lento en línea recta hacia ahí. Si te toca: -1 bala y te hace girar. De un tiro: +1 |
-| Cofre | 3 tiros (barrita de vida). Cada tiro escupe 2 balas que hay que pasar a recoger |
-| Cofre trampa (1 de cada 3) | Igual, pero al morir abre la boca con dientes y te persigue: si te toca, -2 balas. 2 tiros más lo matan: +3 |
+| Avión | Cruza volando hacia vos. Tiene 3 balas. Si te choca: -2. Derribado: +3 |
+| Cohete | Te apunta y va derecho, rápido. Si te toca explota: -2. Un tiro lo explota: +1 |
+| Cofre (gigante) | No tiene vida: tiene 3 balas, como vos. Al matarlo: 50 % +5 balas, 50 % un poder |
+| Cofre trampa (1 de cada 3) | Al matarlo abre la boca con dientes, vuelve con 2 balas y te persigue: si te toca, -2. Al matarlo: +5. Los primeros 4 cofres que matás en tu vida nunca son trampa |
 
-**Poderes**: 3 headshots seguidos (un kill al cuerpo corta la racha) sueltan un orbe; tocalo para agarrarlo.
+Los bichos voladores aparecen alrededor de tu altura (no solo cerca del piso), según cuánto subiste sobre el piso:
+hasta 20 m halcones y murciélagos; desde 20 m aviones con halcones; desde 40 m cohetes con aviones, sin pájaros,
+y el cielo pasa a negro con estrellas.
+
+**Poderes** (se aplican solos, no hay que recogerlos): 3 headshots seguidos (perdona los tiros errados; un kill
+al cuerpo corta la racha) o 3 kills en 3 tiros (no perdona nada). Al dar un poder se reinician las dos rachas.
 Balas infinitas 20 s · mirilla láser de 20 m por 1 min · +15 balas · intocable 15 s.
 
 **Niveles especiales** (el primero a los 300 m, después cada 500 m, sin repetir hasta usar los tres):
