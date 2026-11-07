@@ -36,7 +36,7 @@ const L_PICKUP := 32 # balas sueltas y poderes (las balas los atraviesan)
 # Daño (balas = vida)
 const HURT_COOLDOWN := 0.6 # invulnerable un ratito después de un golpe
 const FLYER_REWARD := 1 # balas por matar un murciélago o un halcón
-const MIMIC_REWARD := 3
+const MIMIC_REWARD := 5
 
 # Espadachín
 const SWORD_REACH := 1.5 # m alrededor del pecho
@@ -60,13 +60,15 @@ const HAWK_SIGHT := 13.0
 const HAWK_SPEED := 3.2
 const HAWK_SPIN := 14.0 # rad/s que te hace girar al golpearte
 
-# Cofres
-const CHEST_HP := 3
-const CHEST_SPIT := 2 # balas que escupe por cada tiro
+# Cofres (no tienen vida: tienen balas, como vos)
+const CHEST_AMMO := 3
+const CHEST_REWARD := 5 # cofre bueno: 50 % te da 5 balas...
+const CHEST_POWER_CHANCE := 0.5 # ...y 50 % un poder
 const TRAP_CHANCE := 1.0 / 3.0
+const SAFE_CHESTS := 4 # los primeros 4 cofres que matás en tu vida nunca son trampa
 const MIMIC_SPEED := 2.6
 const MIMIC_DAMAGE := 2
-const MIMIC_HP := 2
+const MIMIC_AMMO := 2 # el trampa vuelve con 2 balas
 const PICKUP_LIFE := 14.0
 
 # Poderes (3 headshots seguidos)

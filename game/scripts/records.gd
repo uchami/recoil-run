@@ -8,6 +8,7 @@ const MAX_ATTEMPTS := 20
 
 static var best := {"dist": 0, "height": 0, "ammo": 0}
 static var attempts: Array = [] # [{dist, height, ammo, kills, headshots, time}], ordenado por dist
+static var stats := {} # contadores de toda la vida (ej. chests_killed)
 static var _loaded := false
 
 
@@ -17,6 +18,7 @@ static func load_saved(force := false) -> void:
 	_loaded = true
 	best = {"dist": 0, "height": 0, "ammo": 0}
 	attempts = []
+	stats = {}
 	var cf := ConfigFile.new()
 	if cf.load(save_path) != OK:
 		return
@@ -24,6 +26,20 @@ static func load_saved(force := false) -> void:
 	best.height = int(cf.get_value("score", "best_height", 0))
 	best.ammo = int(cf.get_value("score", "best_ammo", 0))
 	attempts = cf.get_value("score", "attempts", [])
+	stats = cf.get_value("progress", "stats", {})
+
+
+static func stat(key: String) -> int:
+	load_saved()
+	return int(stats.get(key, 0))
+
+
+## Suma 1 a un contador de toda la vida y lo guarda en el teléfono.
+static func bump(key: String) -> int:
+	load_saved()
+	stats[key] = stat(key) + 1
+	_save()
+	return stats[key]
 
 
 ## Guarda un intento. Devuelve {rank (1-based, 0 si no entró), new: {dist, height, ammo}}.
@@ -51,6 +67,7 @@ static func add(attempt: Dictionary) -> Dictionary:
 static func reset() -> void:
 	best = {"dist": 0, "height": 0, "ammo": 0}
 	attempts = []
+	stats = {}
 	_loaded = true
 	_save()
 
@@ -61,4 +78,5 @@ static func _save() -> void:
 	cf.set_value("score", "best_height", best.height)
 	cf.set_value("score", "best_ammo", best.ammo)
 	cf.set_value("score", "attempts", attempts)
+	cf.set_value("progress", "stats", stats)
 	cf.save(save_path)

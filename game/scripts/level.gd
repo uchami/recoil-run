@@ -165,8 +165,15 @@ func _finish_block(length: float, kind: String) -> Dictionary:
 	if _next_item_x < b.x0 + ITEM_EDGE:
 		_next_item_x = b.x0 + ITEM_EDGE + rng.randf_range(0.0, 1.5)
 	while _next_item_x <= b.x1 - ITEM_EDGE:
-		b.items.append({"type": _pick_ground_type(), "x": _next_item_x, "y": b.top})
-		_next_item_x += rng.randf_range(ITEM_SPACING.x, ITEM_SPACING.y)
+		var t := _pick_ground_type()
+		var half := Chest.world_size().x / 2.0 + 0.3
+		if t in ["chest", "trap"]:
+			if b.x1 - b.x0 < half * 2.0: # no entra: va un personaje
+				t = "plain"
+			else: # centrado dentro del bloque
+				_next_item_x = clampf(_next_item_x, b.x0 + half, b.x1 - half)
+		b.items.append({"type": t, "x": _next_item_x, "y": b.top})
+		_next_item_x += rng.randf_range(ITEM_SPACING.x, ITEM_SPACING.y) + (half if t in ["chest", "trap"] else 0.0)
 	return b
 
 

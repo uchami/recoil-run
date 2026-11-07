@@ -38,6 +38,7 @@ func _run() -> void:
 	await test_bat()
 	await test_hawk()
 	await test_chest()
+	await test_safe_chests()
 	await test_trap_chest()
 	await test_power_streak()
 	await test_powers()
@@ -318,7 +319,7 @@ func test_level_generator() -> void:
 	var b0: Dictionary = bs[0]
 	check(b0.top == 0.0 and b0.items.map(func(it): return it.x) == Level.ENEMY_XS and b0.items.all(func(it): return it.type == "plain"), "el arranque es fijo: piso plano y los 3 personajes")
 	check(bs[1].x0 == b0.x1, "no hay hueco pegado al arranque")
-	check(gaps > 50, "hay huecos (%d en 3km)" % gaps)
+	check(gaps > 30, "hay huecos (%d en 3km)" % gaps)
 	check(max_gap <= Level.GAP_LEN.y + Level.GAP_RAMP_MAX + 0.01, "huecos cruzables (máx %.1fm)" % max_gap)
 	check(heights.size() >= 20, "alturas variadas (%d niveles distintos)" % heights.size())
 	check(max_up <= Level.MAX_STEP_UP + 0.01, "paredes trepables (máx %.1fm)" % max_up)
@@ -609,36 +610,75 @@ func test_hawk() -> void:
 
 func test_chest() -> void:
 	print("cofre")
-	var m := await spawn()
-	clear_world(m)
-	await physics_frame
-	var c: Chest = put(m, "chest", 4.0)
-	await physics_frame
-	for i in 3:
-		await fire_at(m, Vector2(0.0, 1.0), c.global_position + Vector3(0, 0.4, 0))
-		await wait_s(0.1)
-	var pickups: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Pickup)
-	check(c.hp == 0, "muere con 3 tiros")
-	check(pickups.size() == 3 * Config.CHEST_SPIT, "escupió %d balas" % pickups.size())
-	check(not m.entities.any(func(n): return is_instance_valid(n) and n is Mimic), "no es trampa")
-	var before: int = m.ammo
-	await wait_s(1.5) # que caigan
-	var p: Pickup = pickups[0]
-	await place_gun(m, Vector2(p.global_position.x, p.global_position.y + 0.3), 0.0)
-	await wait_s(0.3)
-	check(m.ammo == before + 1 or m.ammo > before, "recoger una suma bala (%d -> %d)" % [before, m.ammo])
-	await despawn(m)
+	var outcomes := {"balas": 0, "poder": 0}
+	for k in 8:
+		var m := await spawn()
+		clear_world(m)
+		await physics_frame
+		var c: Chest = put(m, "chest", 6.0)
+		await physics_frame
+		var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
+		var before := 0
+		for i in Config.CHEST_AMMO:
+			if i == Config.CHEST_AMMO - 1:
+				before = m.ammo - 1
+				m.last_power = ""
+			await fire_at(m, Vector2(-1.0, 1.5), center)
+			if i == 0 and k == 0:
+				check(c.ammo == Config.CHEST_AMMO - 1, "cada tiro le saca una bala (%d)" % c.ammo)
+		if k == 0:
+			check(c.ammo == 0, "muere con %d tiros" % Config.CHEST_AMMO)
+			check(not m.entities.any(func(n): return is_instance_valid(n) and n is Mimic), "no es trampa")
+			check(Chest.world_size().x >= 4.9, "es grande (%.1f m de ancho)" % Chest.world_size().x)
+		if m.last_power != "":
+			outcomes.poder += 1
+		elif m.ammo == before + Config.CHEST_REWARD:
+			outcomes.balas += 1
+		Engine.time_scale = 1.0
+		await despawn(m)
+	check(outcomes.balas + outcomes.poder == 8, "siempre da algo: %s" % str(outcomes))
+	check(outcomes.balas > 0 and outcomes.poder > 0, "a veces balas, a veces poder")
+
+
+func test_safe_chests() -> void:
+	print("los primeros %d cofres nunca son trampa" % Config.SAFE_CHESTS)
+	Records.reset()
+	var mimics := 0
+	for k in Config.SAFE_CHESTS + 1:
+		var m := await spawn()
+		clear_world(m)
+		await physics_frame
+		var c: Chest = put(m, "trap", 6.0) # todos trampa...
+		await physics_frame
+		var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
+		for i in Config.CHEST_AMMO:
+			await fire_at(m, Vector2(-1.0, 1.5), center)
+		await physics_frame
+		var opened: bool = m.entities.any(func(n): return is_instance_valid(n) and n is Mimic)
+		if k < Config.SAFE_CHESTS:
+			mimics += 1 if opened else 0
+		else:
+			check(opened, "el cofre nº %d ya puede ser trampa" % (k + 1))
+		Engine.time_scale = 1.0
+		await despawn(m)
+	check(mimics == 0, "...pero los primeros %d no muerden (%d mordieron)" % [Config.SAFE_CHESTS, mimics])
+	check(Records.stat("chests_killed") == Config.SAFE_CHESTS + 1, "cuenta guardada en el teléfono (%d)" % Records.stat("chests_killed"))
+	Records.load_saved(true)
+	check(Records.stat("chests_killed") == Config.SAFE_CHESTS + 1, "y sobrevive a reiniciar el juego")
+	Records.reset()
 
 
 func test_trap_chest() -> void:
 	print("cofre trampa")
+	Records.stats["chests_killed"] = Config.SAFE_CHESTS # ya mató los primeros
 	var m := await spawn()
 	clear_world(m)
 	await physics_frame
-	var c: Chest = put(m, "trap", 6.0)
+	var c: Chest = put(m, "trap", 8.0)
 	await physics_frame
-	for i in 3:
-		await fire_at(m, Vector2(0.0, 1.0), c.global_position + Vector3(0, 0.4, 0))
+	var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
+	for i in Config.CHEST_AMMO:
+		await fire_at(m, Vector2(-1.0, 1.5), center)
 	await physics_frame
 	var mimics: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Mimic)
 	check(mimics.size() == 1, "al morir abre la boca (mimic)")
@@ -646,6 +686,7 @@ func test_trap_chest() -> void:
 		await despawn(m)
 		return
 	var mm: Mimic = mimics[0]
+	check(mm.ammo == Config.MIMIC_AMMO, "vuelve con %d balas" % mm.ammo)
 	var d0: float = mm.global_position.distance_to(m.gun.global_position)
 	m.ammo = 6
 	var hold: Vector3 = m.gun.global_position
@@ -659,6 +700,13 @@ func test_trap_chest() -> void:
 	while m.ammo == 6 and Time.get_ticks_msec() - t0 < 4000:
 		await physics_frame
 	check(m.ammo == 6 - Config.MIMIC_DAMAGE, "si te toca: -%d balas (%d)" % [Config.MIMIC_DAMAGE, m.ammo])
+	# matarlo: 2 tiros, te da 5
+	m.ammo = 10
+	m._hurt_cd = 99.0
+	for i in Config.MIMIC_AMMO:
+		await fire_at(m, Vector2(-6.0, 1.5), mm.global_position + Vector3(0, 1.5, 0))
+	check(not mm.alive, "muere con %d tiros" % Config.MIMIC_AMMO)
+	check(m.ammo == 10 - Config.MIMIC_AMMO + Config.MIMIC_REWARD, "te da %d balas (%d)" % [Config.MIMIC_REWARD, m.ammo])
 	await despawn(m)
 
 

@@ -35,6 +35,7 @@ var sfx: Sfx
 var streak := 0 # headshots seguidos (los tiros errados no la cortan; un kill al cuerpo sí)
 var kill_streak := 0 # tiros seguidos que mataron algo (un tiro que no mata la corta)
 var last_power := ""
+var _power_pending := false # un cofre soltó un poder en este tiro
 var powers := {} # poder -> segundos que le quedan
 
 var _queued_shots := 0
@@ -179,7 +180,8 @@ func shoot() -> void:
 	_fx_tracer(from, end)
 	_fx_flash(from)
 	kill_streak = kill_streak + 1 if killed else 0
-	if streak >= Config.STREAK_FOR_POWER or kill_streak >= Config.STREAK_FOR_POWER:
+	if _power_pending or streak >= Config.STREAK_FOR_POWER or kill_streak >= Config.STREAK_FOR_POWER:
+		_power_pending = false
 		grant_power(end)
 
 
@@ -227,10 +229,15 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 		"chest_hit", "mimic_hit":
 			_fx_puff(point, Color("c98a4a"), 8, 0.5, true)
 			sfx.play("chest_hit")
-		"chest_open":
-			_fx_puff(point, Color("ffcf3a"), 16, 0.8, true)
+		"chest_kill":
+			kills += 1
+			_fx_puff(point, Color("ffcf3a"), 20, 0.9, true)
 			sfx.play("chest_hit")
 			sfx.play("chest_open")
+			if res.get("power", false):
+				_power_pending = true
+			else:
+				hud.popup_world(camera, above, "+%d" % reward, "headshot")
 		"trap_open":
 			hud.popup_world(camera, above, "¡TRAMPA!", "hurt")
 			sfx.play("chomp")
