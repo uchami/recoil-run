@@ -649,6 +649,8 @@ func _sky_spawner(p: Vector3) -> void:
 
 ## Qué aparece según la altura sobre el piso.
 func sky_type(altitude: float) -> String:
+	if randf() < Config.AIR_SPRING_CHANCE: # resortes flotando, a cualquier altura
+		return "spring_air"
 	var r := randf()
 	if altitude >= Config.ROCKET_ALT: # cohetes con aviones, sin pájaros
 		return "rocket" if r < 0.6 else "plane"
@@ -675,6 +677,9 @@ func _spawn_item(it: Dictionary) -> void:
 	match it.type:
 		"spring":
 			n = Spring.new()
+		"spring_air": # flotando: pos es su centro
+			n = Spring.new()
+			pos.y -= Config.SPRING_HEIGHT / 2.0
 		"chest", "trap":
 			var c := Chest.new()
 			c.trap = it.type == "trap"

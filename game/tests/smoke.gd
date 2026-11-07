@@ -34,6 +34,7 @@ func _run() -> void:
 	await test_shield_and_helmet()
 	await test_sword()
 	await test_spring()
+	await test_air_spring()
 	await test_sky_spawner()
 	await test_altitude_zones()
 	await test_plane()
@@ -538,6 +539,22 @@ func test_spring() -> void:
 	check(res[1][1] > res[0][1] + 3.0, "choque fuerte te hace girar más (%.1f vs %.1f rad/s)" % [res[1][1], res[0][1]])
 
 
+func test_air_spring() -> void:
+	print("resorte flotando")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	put(m, "spring_air", 4.0, 10.0)
+	await place_gun(m, Vector2(1.0, 10.0), 0.0)
+	m.gun.linear_velocity = Vector3(8.0, 0.0, 0.0)
+	var min_vx := 0.0
+	for i in 60:
+		await physics_frame
+		min_vx = minf(min_vx, m.gun.linear_velocity.x)
+	check(min_vx < -Config.SPRING_BASE_PUSH, "en el aire también te devuelve (vx=%.1f)" % min_vx)
+	await despawn(m)
+
+
 func test_sky_spawner() -> void:
 	print("bichos a cualquier altura")
 	var m := await spawn()
@@ -851,6 +868,9 @@ func test_altitude_zones() -> void:
 			var t: String = m.sky_type(alt)
 			c[t] = c.get(t, 0) + 1
 		counts[alt] = c
+	for alt in counts:
+		check(counts[alt].has("spring_air"), "a %.0fm también hay resortes flotando (%d de 400)" % [alt, counts[alt].get("spring_air", 0)])
+		counts[alt].erase("spring_air")
 	check(counts[5.0].keys().all(func(k): return k in ["hawk", "bat"]), "abajo: halcones y murciélagos %s" % str(counts[5.0]))
 	check(counts[30.0].has("plane") and counts[30.0].has("hawk") and not counts[30.0].has("rocket"), "alto: aviones con halcones %s" % str(counts[30.0]))
 	check(counts[60.0].has("rocket") and counts[60.0].has("plane") and not counts[60.0].has("hawk") and not counts[60.0].has("bat"), "más alto: cohetes con aviones, sin pájaros %s" % str(counts[60.0]))

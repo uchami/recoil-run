@@ -54,6 +54,7 @@ const SPRING_SPIN_GAIN := 1.2 # rad/s de giro por cada m/s de choque
 # Bichos voladores: aparecen alrededor de tu altura a medida que avanzás o subís
 const SKY_SPAWN_EVERY := Vector2(10.0, 18.0) # metros recorridos entre uno y otro
 const SKY_SPAWN_AHEAD := Vector2(14.0, 20.0)
+const AIR_SPRING_CHANCE := 0.15 # de lo que aparece en el aire, tanto son resortes flotando
 
 # Halcón: toma tu posición al verte y va lento en línea recta hacia ahí
 const HAWK_SIGHT := 13.0
