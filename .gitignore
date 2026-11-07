@@ -1,0 +1,5 @@
+build/
+game/.godot/
+prototype-web/node_modules/
+prototype-web/dist/
+.DS_Store
