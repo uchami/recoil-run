@@ -57,6 +57,11 @@ adb install -r ../build/recoil-run.apk
 | Con casco | El casco rebota las balas: hay que darle al torso |
 | Resorte | Pared vertical: te devuelve para atrás; cuanto más fuerte chocás, más fuerte te empuja y más te hace girar |
 | Ventilador | Pasados los 500 m, a veces. Te sube hasta la altura donde empiezan los cohetes |
+| Cohete propulsor | Pasados los 3000 m, a veces. Lo tocás, te agarra y te suelta en el espacio (90 m sobre el piso) |
+| Resorte flotando | Igual que el del piso, a cualquier altura |
+| Candado | Flota. Tiene 4 balas (+4). Si te toca se te pega: el arma pesa el doble 5 s |
+| Ovni | Avisa con una línea finita y a los 0.7 s dispara un láser verde: -5 balas. Se esquiva moviéndote. 4 balas, +5 |
+| Astronauta | Flota dando vueltas; si te choca -1 y te empuja. 2 balas, +3 |
 | Murciélago | Revolotea. Si te choca se muere y te saca 1 bala. De un tiro: +1 |
 | Halcón | Cuando te ve, toma tu posición y va lento en línea recta hacia ahí. Si te toca: -1 bala y te hace girar. De un tiro: +1 |
 | Avión | Cruza volando hacia vos. Tiene 3 balas. Si te choca: -2. Derribado: +3 |
@@ -66,7 +71,10 @@ adb install -r ../build/recoil-run.apk
 
 Los bichos voladores aparecen alrededor de tu altura (no solo cerca del piso), según cuánto subiste sobre el piso:
 hasta 20 m halcones y murciélagos; desde 20 m aviones con halcones; desde 40 m cohetes con aviones, sin pájaros,
-y el cielo pasa a negro con estrellas.
+el cielo pasa a negro con estrellas y la gravedad baja al 45 %; desde 80 m ovnis, astronautas y cohetes (sin aviones).
+Resortes y candados aparecen a cualquier altura.
+
+Al pasar un nivel especial: cartel "¡NIVEL ESPECIAL!" con confeti y +5 balas.
 
 **Poderes** (se aplican solos, no hay que recogerlos): 3 headshots seguidos (perdona los tiros errados; un kill
 al cuerpo corta la racha) o 3 kills en 3 tiros (no perdona nada). Al dar un poder se reinician las dos rachas.
