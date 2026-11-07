@@ -95,7 +95,6 @@ void fragment() {
 	_ammo_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	_ammo_box.add_child(_bullet_icon())
 	_ammo = _label("5", 60, Color.WHITE, 14)
-	_ammo.autowrap_mode = TextServer.AUTOWRAP_OFF # si no, "10" se parte en dos líneas
 	_ammo_box.add_child(_ammo)
 	_root.add_child(_ammo_box)
 
@@ -188,7 +187,9 @@ func _label(text: String, size: int, color: Color, outline: int) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	# Sin cortar líneas: en contenedores el autowrap partía "10" o "123m" en renglones.
+	# Los textos de varias líneas usan \n explícitos.
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
@@ -384,7 +385,10 @@ func flash_hurt() -> void:
 func place_ammo(screen: Vector2) -> void:
 	var s := _ammo_box.get_combined_minimum_size()
 	_ammo_box.size = s
-	_ammo_box.position = screen - Vector2(s.x / 2.0, s.y)
+	var pos := screen - Vector2(s.x / 2.0, s.y)
+	var vw := get_viewport().get_visible_rect().size.x
+	pos.x = clampf(pos.x, 12.0, vw - s.x - 12.0) # que no se salga por los costados
+	_ammo_box.position = pos
 
 
 func bump_ammo() -> void:

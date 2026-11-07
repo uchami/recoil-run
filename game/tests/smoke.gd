@@ -518,8 +518,13 @@ func test_bat() -> void:
 	await physics_frame
 	var b: Flyer = put(m, "bat", 0.0, 4.0)
 	m.ammo = 5
-	await place_gun(m, Vector2(0.0, 4.0), 0.0)
-	await wait_s(0.3)
+	await place_gun(m, Vector2(b.global_position.x, b.global_position.y), 0.0)
+	for i in 30: # lo seguimos hasta chocarlo (revolotea)
+		if not b.alive:
+			break
+		m.gun.global_position = b.global_position
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
 	check(m.ammo == 4, "si te choca: -1 bala (%d)" % m.ammo)
 	check(not b.alive, "y se muere")
 	await despawn(m)
