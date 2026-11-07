@@ -106,3 +106,10 @@ const FAN_MAX_SPEED := 14.0
 
 # Pasar un nivel especial
 const SPECIAL_REWARD := 5
+
+# Candado volador: 4 balas para matarlo; si te toca, se te pega y el arma pesa más
+const PADLOCK_AMMO := 4
+const PADLOCK_REWARD := 4
+const LOCK_TIME := 5.0
+const LOCK_WEIGHT := 2.0 # gravedad x2 mientras lo tenés pegado
+const PADLOCK_CHANCE := 0.12 # de lo que aparece en el cielo

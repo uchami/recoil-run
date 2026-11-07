@@ -357,7 +357,7 @@ func set_values(best: int, dist: int, ammo: int, infinite := false) -> void:
 	_ammo.add_theme_color_override("font_color", Color("ff6b6b") if ammo == 0 and not infinite else Color.WHITE)
 
 
-const POWER_LABELS := {"infinite": "∞ BALAS", "laser": "LÁSER", "untouchable": "★ INTOCABLE"}
+const POWER_LABELS := {"infinite": "∞ BALAS", "laser": "LÁSER", "untouchable": "★ INTOCABLE", "locked": "CANDADO: PESÁS x2"}
 
 
 ## Poderes activos con su tiempo restante, debajo de la distancia.

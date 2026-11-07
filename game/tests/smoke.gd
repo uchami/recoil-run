@@ -39,6 +39,7 @@ func _run() -> void:
 	await test_altitude_zones()
 	await test_plane()
 	await test_fan()
+	await test_padlock()
 	await test_special_done()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
@@ -871,6 +872,8 @@ func test_altitude_zones() -> void:
 	for alt in counts:
 		check(counts[alt].has("spring_air"), "a %.0fm también hay resortes flotando (%d de 400)" % [alt, counts[alt].get("spring_air", 0)])
 		counts[alt].erase("spring_air")
+		check(counts[alt].has("padlock"), "a %.0fm también hay candados" % alt)
+		counts[alt].erase("padlock")
 	check(counts[5.0].keys().all(func(k): return k in ["hawk", "bat"]), "abajo: halcones y murciélagos %s" % str(counts[5.0]))
 	check(counts[30.0].has("plane") and counts[30.0].has("hawk") and not counts[30.0].has("rocket"), "alto: aviones con halcones %s" % str(counts[30.0]))
 	check(counts[60.0].has("rocket") and counts[60.0].has("plane") and not counts[60.0].has("hawk") and not counts[60.0].has("bat"), "más alto: cohetes con aviones, sin pájaros %s" % str(counts[60.0]))
@@ -1109,4 +1112,39 @@ func test_special_done() -> void:
 	check("fanfare" in m.sfx.played, "suena la fanfarria")
 	await process_frame
 	check(m.specials_done == 1, "una sola vez")
+	await despawn(m)
+
+
+func test_padlock() -> void:
+	print("candado")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var pl: Padlock = put(m, "padlock", 8.0, 3.0)
+	m.ammo = 10
+	for i in Config.PADLOCK_AMMO:
+		await fire_at(m, Vector2(0.0, 3.0), pl.global_position)
+	check(not pl.alive, "muere con %d tiros" % Config.PADLOCK_AMMO)
+	check(m.ammo == 10 - Config.PADLOCK_AMMO + Config.PADLOCK_REWARD, "te da %d balas (%d)" % [Config.PADLOCK_REWARD, m.ammo])
+	await despawn(m)
+	# si te toca: se pega y pesás más
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	pl = put(m, "padlock", 0.0, 4.0)
+	await place_gun(m, Vector2(0.0, 4.0), 0.0)
+	for i in 30:
+		if m.power_on("locked"):
+			break
+		m.gun.global_position = pl.global_position if is_instance_valid(pl) else m.gun.global_position
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.power_on("locked"), "si te toca, se te pega")
+	check(m.gun.get_node_or_null("Lock") != null, "se ve el candado en el arma")
+	await process_frame
+	await process_frame
+	check(m.gun.gravity_scale > 1.9, "el arma pesa el doble (gravedad x%.1f)" % m.gun.gravity_scale)
+	m.powers.locked = 0.01
+	await wait_s(0.2)
+	check(not m.power_on("locked") and m.gun.gravity_scale < 1.01, "a los %ds se suelta" % Config.LOCK_TIME)
 	await despawn(m)

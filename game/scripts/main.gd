@@ -204,7 +204,7 @@ func _raycast(from: Vector3, to: Vector3) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
-const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill"]
+const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill", "padlock_kill"]
 
 
 ## Aplica el resultado de un tiro. Devuelve true si mató algo.
@@ -235,7 +235,7 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 		"plane_hit":
 			_fx_puff(point, Color("d9dde6"), 8, 0.4, false)
 			sfx.play("clank", -4.0, 0.8)
-		"plane_kill", "rocket_kill":
+		"plane_kill", "rocket_kill", "padlock_kill":
 			kills += 1
 			explosion_fx(point)
 			hud.popup_world(camera, above, "+%d" % reward, "")
@@ -291,6 +291,29 @@ func hurt(amount: int, from: Vector3, knock := Vector2.ZERO, spin := 0.0, _cause
 
 
 ## away: -1 = te devuelve a la izquierda (lo normal), +1 = a la derecha.
+## Un candado te tocó: se pega al arma y pesa más por unos segundos.
+## Devuelve false si no se pudo pegar (intocable, o ya tenés uno).
+func lock_gun() -> bool:
+	if state != State.PLAYING or power_on("untouchable") or power_on("locked"):
+		return false
+	powers.locked = Config.LOCK_TIME
+	gun.weight = Config.LOCK_WEIGHT
+	var lock_vis := Padlock.build_mesh(0.45)
+	lock_vis.name = "Lock"
+	lock_vis.position = Vector3(-0.05, -0.32, 0.12)
+	gun.add_child(lock_vis)
+	sfx.play("lock")
+	hud.popup_world(camera, gun.global_position + Vector3(0, 1.0, 0), "¡CANDADO!", "hurt")
+	return true
+
+
+func _unlock_gun() -> void:
+	gun.weight = 1.0
+	var l := gun.get_node_or_null("Lock")
+	if l:
+		l.queue_free()
+
+
 func spring_launch(_spring: Node3D, away: float) -> void:
 	if state != State.PLAYING:
 		return
@@ -429,6 +452,8 @@ func _process(delta: float) -> void:
 			powers.erase(k)
 			if k == "untouchable":
 				gun.set_glow(null)
+			elif k == "locked":
+				_unlock_gun()
 	_update_laser()
 	if state == State.PLAYING:
 		_check_game_over(real_dt, p)
@@ -474,6 +499,7 @@ func _game_over(title: String) -> void:
 	sfx.play("game_over")
 	powers.clear()
 	gun.set_glow(null)
+	_unlock_gun()
 	hud.set_powers(powers)
 	max_ammo = maxi(max_ammo, ammo)
 	var attempt := {"dist": distance, "height": max_height, "ammo": max_ammo, "kills": kills, "headshots": headshots}
@@ -651,6 +677,8 @@ func _sky_spawner(p: Vector3) -> void:
 func sky_type(altitude: float) -> String:
 	if randf() < Config.AIR_SPRING_CHANCE: # resortes flotando, a cualquier altura
 		return "spring_air"
+	if randf() < Config.PADLOCK_CHANCE: # candados, a cualquier altura
+		return "padlock"
 	var r := randf()
 	if altitude >= Config.ROCKET_ALT: # cohetes con aviones, sin pájaros
 		return "rocket" if r < 0.6 else "plane"
@@ -694,6 +722,8 @@ func _spawn_item(it: Dictionary) -> void:
 			n = Fan.new()
 		"rocket":
 			n = Rocket.new()
+		"padlock":
+			n = Padlock.new()
 		_:
 			return
 	n.set("game", self)
@@ -770,7 +800,7 @@ func _prewarm() -> void:
 		var f := Flyer.new()
 		f.kind = k
 		holder.add_child(f)
-	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new()]:
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new()]:
 		holder.add_child(n)
 	for i in 3:
 		await get_tree().process_frame
