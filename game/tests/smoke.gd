@@ -41,6 +41,7 @@ func _run() -> void:
 	await test_fan()
 	await test_padlock()
 	await test_ufo()
+	await test_booster()
 	await test_astronaut()
 	await test_special_done()
 	await test_camera_follows_high_flight()
@@ -1212,4 +1213,49 @@ func test_astronaut() -> void:
 		m.gun.global_position = a.global_position
 		await physics_frame
 	check(m.ammo == 10 - Config.ASTRONAUT_DAMAGE, "si te choca: -%d (%d)" % [Config.ASTRONAUT_DAMAGE, m.ammo])
+	await despawn(m)
+
+
+func test_booster() -> void:
+	print("cohete propulsor")
+	var lv := Level.new(7)
+	var boosters := []
+	var bs := [lv.next_block()]
+	while bs[-1].x1 < 8000.0:
+		bs.append(lv.next_block())
+	for b in bs:
+		for it in b.items:
+			if it.type == "booster":
+				boosters.append(it.x)
+	check(boosters.size() >= 2, "aparece, poco (%d en 8km)" % boosters.size())
+	check(boosters.all(func(x): return x > Config.BOOSTER_FROM), "solo pasados los %dm" % Config.BOOSTER_FROM)
+
+	Level.debug_special = "booster"
+	var m := await spawn()
+	var bx := 0.0
+	var by := 0.0
+	for b in m.blocks:
+		for it in b.items:
+			if it.type == "booster":
+				bx = it.x
+				by = it.y
+	check(bx > 0.0, "PROBAR COHETE lo pone apenas termina el arranque (x=%.0f)" % bx)
+	clear_world(m)
+	await physics_frame
+	put(m, "booster", bx, by)
+	await place_gun(m, Vector2(bx, by + 2.0), 0.0)
+	var peak := 0.0
+	var spawned := 0
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 8000:
+		await physics_frame
+		peak = maxf(peak, m.gun.global_position.y - by)
+		if peak < Config.BOOSTER_DROP_ALT - 5.0:
+			spawned = m.sky_spawned
+		if m.gun.linear_velocity.y < 0.0 and peak > 20.0:
+			break
+	check(peak > Config.BOOSTER_DROP_ALT - 2.0, "te lleva directo al espacio (%.0fm sobre el piso)" % peak)
+	check(peak < Config.BOOSTER_DROP_ALT + 8.0, "y te suelta ahí arriba (no sigue)")
+	check(spawned == 0, "viaje limpio (%d bichos en el camino)" % spawned)
+	check(m.state == m.State.PLAYING, "sigue la partida")
 	await despawn(m)

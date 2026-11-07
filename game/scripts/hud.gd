@@ -259,18 +259,24 @@ func _build_tuning() -> void:
 	_root.add_child(open_btn)
 
 	_tune_panel = PanelContainer.new()
-	_tune_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_tune_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_tune_panel.offset_left = 24
 	_tune_panel.offset_right = -24
 	_tune_panel.offset_top = 100
+	_tune_panel.offset_bottom = -24
 	_tune_panel.add_theme_stylebox_override("panel", _pill_style(Color(0.16, 0.06, 0.22, 0.92), 32))
 	_tune_panel.visible = false
 	_root.add_child(_tune_panel)
 	open_btn.pressed.connect(func(): _tune_panel.visible = not _tune_panel.visible)
 
+	# Con scroll: en pantallas bajas no entra todo.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_tune_panel.add_child(scroll)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
-	_tune_panel.add_child(col)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(col)
 	for spec in Tuning.SLIDERS:
 		var key: String = spec[0]
 		var l := Label.new()
@@ -301,15 +307,16 @@ func _build_tuning() -> void:
 			Tuning.set_value(key, v)
 			_refresh_tuning_labels()
 			tuning_changed.emit())
-	for spec in [["PROBAR NIVEL", test_level, [["↓ ESCALERA", "stairs_down"], ["↑ ESCALERA", "stairs_up"], ["AÉREO", "air"]]],
+	for spec in [["PROBAR NIVEL", test_level, [["↓ ESC.", "stairs_down"], ["↑ ESC.", "stairs_up"], ["AÉREO", "air"], ["VENT.", "fan"], ["COHETE", "booster"]]],
 			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
 		var t := Label.new()
 		t.text = spec[0]
 		t.add_theme_font_size_override("font_size", 28)
 		col.add_child(t)
-		var r := HBoxContainer.new()
-		r.alignment = BoxContainer.ALIGNMENT_CENTER
-		r.add_theme_constant_override("separation", 12)
+		var r := HFlowContainer.new() # si no entran en una fila, siguen abajo
+		r.alignment = FlowContainer.ALIGNMENT_CENTER
+		r.add_theme_constant_override("h_separation", 12)
+		r.add_theme_constant_override("v_separation", 10)
 		col.add_child(r)
 		for pair in spec[2]:
 			var b := _small_button(pair[0], Color(1, 1, 1, 0.18), Color.WHITE)

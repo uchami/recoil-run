@@ -722,6 +722,8 @@ func _spawn_item(it: Dictionary) -> void:
 			n = Airplane.new()
 		"fan":
 			n = Fan.new()
+		"booster":
+			n = Booster.new()
 		"rocket":
 			n = Rocket.new()
 		"padlock":
@@ -806,7 +808,7 @@ func _prewarm() -> void:
 		var f := Flyer.new()
 		f.kind = k
 		holder.add_child(f)
-	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new(), Ufo.new(), Astronaut.new()]:
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new(), Ufo.new(), Astronaut.new(), Booster.new()]:
 		holder.add_child(n)
 	for i in 3:
 		await get_tree().process_frame

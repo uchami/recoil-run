@@ -57,6 +57,7 @@ var _next_item_x := 0.0
 var _next_special_x := SPECIAL_FIRST
 var _special_end := 0.0
 var _special_bag: Array = []
+var _force_lift := "" # solo para probar: "fan" o "booster" apenas termina el arranque
 
 
 func _init(seed_value: int = -1, force_special := "") -> void:
@@ -64,7 +65,9 @@ func _init(seed_value: int = -1, force_special := "") -> void:
 		rng.randomize()
 	else:
 		rng.seed = seed_value
-	if force_special != "":
+	if force_special in ["fan", "booster"]:
+		_force_lift = force_special
+	elif force_special != "":
 		_next_special_x = START_X + START_LEN
 		_special_bag = [force_special]
 
@@ -162,9 +165,19 @@ func _finish_block(length: float, kind: String) -> Dictionary:
 
 	# Ítems de piso: uno cada ITEM_SPACING metros; si el lugar cae en un hueco o
 	# muy al borde, se corre al principio del bloque siguiente.
-	# Ventilador: pasados FAN_FROM metros, a veces, en el medio del bloque.
-	if kind == "" and b.x0 > Config.FAN_FROM and rng.randf() < Config.FAN_CHANCE and b.x1 - b.x0 > Config.FAN_WIDTH + 1.0:
-		b.items.append({"type": "fan", "x": (b.x0 + b.x1) / 2.0, "y": b.top})
+	# Ventilador (pasados FAN_FROM m) y cohete propulsor (pasados BOOSTER_FROM m):
+	# a veces, en el medio del bloque, solos.
+	var lift := ""
+	if kind == "" and b.x1 - b.x0 > Config.FAN_WIDTH + 1.0:
+		if _force_lift != "" and _count >= 3:
+			lift = _force_lift
+			_force_lift = ""
+		elif b.x0 > Config.BOOSTER_FROM and rng.randf() < Config.BOOSTER_CHANCE:
+			lift = "booster"
+		elif b.x0 > Config.FAN_FROM and rng.randf() < Config.FAN_CHANCE:
+			lift = "fan"
+	if lift != "":
+		b.items.append({"type": lift, "x": (b.x0 + b.x1) / 2.0, "y": b.top})
 		_next_item_x = maxf(_next_item_x, b.x1) # nada más arriba de este bloque
 
 	if _next_item_x < b.x0 + ITEM_EDGE:

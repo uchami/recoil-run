@@ -126,3 +126,9 @@ const UFO_BEAM_WIDTH := 0.6
 const ASTRONAUT_AMMO := 2
 const ASTRONAUT_REWARD := 3
 const ASTRONAUT_DAMAGE := 1
+
+# Cohete propulsor: pasados los 3000 m, a veces. Te agarra y te suelta en el espacio.
+const BOOSTER_FROM := 3000.0
+const BOOSTER_CHANCE := 0.04 # por bloque
+const BOOSTER_SPEED := 22.0
+const BOOSTER_DROP_ALT := 90.0 # te suelta a esta altura sobre el piso (entre los ovnis)

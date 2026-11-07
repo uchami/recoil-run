@@ -22,6 +22,9 @@ var _knock_spin := 0.0
 var _prev_speed := 0.0
 var _glow: StandardMaterial3D
 var weight := 1.0 # multiplica la gravedad (candado: el arma pesa más)
+var _hold := false # cohete propulsor: te lleva agarrado
+var _hold_pos := Vector3.ZERO
+var _hold_vel := Vector3.ZERO
 var _updraft := -1.0 # ventilador: velocidad de subida pedida en este paso (-1 = nada)
 var _updraft_x := 0.0
 var _shot_dir := Vector2.RIGHT
@@ -92,6 +95,13 @@ func knock(vel: Vector3, spin := 0.0) -> void:
 	_knock_spin = spin
 
 
+## Cohete propulsor: en este paso de física, estar en pos moviéndose a vel.
+func hold(pos: Vector3, vel: Vector3) -> void:
+	_hold = true
+	_hold_pos = pos
+	_hold_vel = vel
+
+
 ## Ventilador: en este paso de física, subí al menos a vy y acercate al centro.
 func updraft(vy: float, center_x: float) -> void:
 	_updraft = vy
@@ -144,6 +154,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		vy = maxf(vy, lift)
 		state.linear_velocity = Vector3(v.x + recoil.x, vy, 0.0)
 		state.angular_velocity = Vector3(0.0, 0.0, Tuning.values.spin_on_shot)
+		return
+
+	if _hold:
+		_hold = false
+		state.transform = Transform3D(Basis(Vector3.BACK, PI / 2.0), _hold_pos) # cañón para arriba
+		state.linear_velocity = _hold_vel
+		state.angular_velocity = Vector3.ZERO
 		return
 
 	if _updraft >= 0.0:
