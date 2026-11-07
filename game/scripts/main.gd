@@ -204,7 +204,7 @@ func _raycast(from: Vector3, to: Vector3) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
-const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill", "padlock_kill"]
+const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill", "padlock_kill", "ufo_kill"]
 
 
 ## Aplica el resultado de un tiro. Devuelve true si mató algo.
@@ -235,7 +235,7 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 		"plane_hit":
 			_fx_puff(point, Color("d9dde6"), 8, 0.4, false)
 			sfx.play("clank", -4.0, 0.8)
-		"plane_kill", "rocket_kill", "padlock_kill":
+		"plane_kill", "rocket_kill", "padlock_kill", "ufo_kill":
 			kills += 1
 			explosion_fx(point)
 			hud.popup_world(camera, above, "+%d" % reward, "")
@@ -680,6 +680,8 @@ func sky_type(altitude: float) -> String:
 	if randf() < Config.PADLOCK_CHANCE: # candados, a cualquier altura
 		return "padlock"
 	var r := randf()
+	if altitude >= Config.UFO_ALT: # ovnis y astronautas; ya no hay aviones; los cohetes siguen
+		return "ufo" if r < 0.35 else ("astronaut" if r < 0.65 else "rocket")
 	if altitude >= Config.ROCKET_ALT: # cohetes con aviones, sin pájaros
 		return "rocket" if r < 0.6 else "plane"
 	if altitude >= Config.PLANE_ALT: # aviones junto con los halcones
@@ -724,6 +726,10 @@ func _spawn_item(it: Dictionary) -> void:
 			n = Rocket.new()
 		"padlock":
 			n = Padlock.new()
+		"ufo":
+			n = Ufo.new()
+		"astronaut":
+			n = Astronaut.new()
 		_:
 			return
 	n.set("game", self)
@@ -800,7 +806,7 @@ func _prewarm() -> void:
 		var f := Flyer.new()
 		f.kind = k
 		holder.add_child(f)
-	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new()]:
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new(), Ufo.new(), Astronaut.new()]:
 		holder.add_child(n)
 	for i in 3:
 		await get_tree().process_frame

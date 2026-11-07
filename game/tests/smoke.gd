@@ -40,6 +40,8 @@ func _run() -> void:
 	await test_plane()
 	await test_fan()
 	await test_padlock()
+	await test_ufo()
+	await test_astronaut()
 	await test_special_done()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
@@ -863,7 +865,7 @@ func test_altitude_zones() -> void:
 	print("zonas por altura")
 	var m := await spawn()
 	var counts := {}
-	for alt in [5.0, 30.0, 60.0]:
+	for alt in [5.0, 30.0, 60.0, 100.0]:
 		var c := {}
 		for i in 400:
 			var t: String = m.sky_type(alt)
@@ -877,6 +879,7 @@ func test_altitude_zones() -> void:
 	check(counts[5.0].keys().all(func(k): return k in ["hawk", "bat"]), "abajo: halcones y murciélagos %s" % str(counts[5.0]))
 	check(counts[30.0].has("plane") and counts[30.0].has("hawk") and not counts[30.0].has("rocket"), "alto: aviones con halcones %s" % str(counts[30.0]))
 	check(counts[60.0].has("rocket") and counts[60.0].has("plane") and not counts[60.0].has("hawk") and not counts[60.0].has("bat"), "más alto: cohetes con aviones, sin pájaros %s" % str(counts[60.0]))
+	check(counts[100.0].has("ufo") and counts[100.0].has("astronaut") and counts[100.0].has("rocket") and not counts[100.0].has("plane"), "más alto todavía: ovnis, astronautas y cohetes, sin aviones %s" % str(counts[100.0]))
 	# cielo de noche
 	await place_gun(m, Vector2(0.0, 2.0), 0.0)
 	await wait_s(0.3)
@@ -1147,4 +1150,66 @@ func test_padlock() -> void:
 	m.powers.locked = 0.01
 	await wait_s(0.2)
 	check(not m.power_on("locked") and m.gun.gravity_scale < 1.01, "a los %ds se suelta" % Config.LOCK_TIME)
+	await despawn(m)
+
+
+func test_ufo() -> void:
+	print("ovni")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var u: Ufo = put(m, "ufo", 8.0, 6.0)
+	m.ammo = 20
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var hold := Vector3(0.0, 3.0, 0.0)
+	var t0 := Time.get_ticks_msec()
+	while u.fired == 0 and Time.get_ticks_msec() - t0 < 4000: # quieto: te da
+		m.gun.global_position = hold
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(u.fired == 1, "te apunta y dispara")
+	check(m.ammo == 20 - Config.UFO_DAMAGE, "si te da el láser: -%d balas (%d)" % [Config.UFO_DAMAGE, m.ammo])
+	check("laser" in m.sfx.played, "suena el láser")
+	# esquivarlo: moverse durante el aviso
+	m.ammo = 20
+	m._hurt_cd = 0.0
+	t0 = Time.get_ticks_msec()
+	while u._aim_left < 0.0 and Time.get_ticks_msec() - t0 < 4000:
+		m.gun.global_position = hold
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(u._aim_left >= 0.0, "antes de disparar, avisa (línea finita)")
+	while u._aim_left >= 0.0:
+		m.gun.global_position = hold + Vector3(0, 3.0, 0) # me corrí
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.ammo == 20, "si te movés durante el aviso, lo esquivás (%d)" % m.ammo)
+	for i in Config.UFO_AMMO:
+		await fire_at(m, Vector2(0.0, 3.0), u.global_position)
+	check(not u.alive, "muere con %d tiros" % Config.UFO_AMMO)
+	await despawn(m)
+
+
+func test_astronaut() -> void:
+	print("astronauta")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var a: Astronaut = put(m, "astronaut", 8.0, 3.0)
+	m.ammo = 10
+	for i in Config.ASTRONAUT_AMMO:
+		await fire_at(m, Vector2(0.0, 3.0), a.global_position)
+	check(not a.alive, "muere con %d tiros" % Config.ASTRONAUT_AMMO)
+	check(m.ammo == 10 - Config.ASTRONAUT_AMMO + Config.ASTRONAUT_REWARD, "te da %d (%d)" % [Config.ASTRONAUT_REWARD, m.ammo])
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	a = put(m, "astronaut", 0.0, 4.0)
+	m.ammo = 10
+	await place_gun(m, Vector2(0.0, 4.0), 0.0)
+	for i in 20:
+		m.gun.global_position = a.global_position
+		await physics_frame
+	check(m.ammo == 10 - Config.ASTRONAUT_DAMAGE, "si te choca: -%d (%d)" % [Config.ASTRONAUT_DAMAGE, m.ammo])
 	await despawn(m)

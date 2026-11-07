@@ -113,3 +113,16 @@ const PADLOCK_REWARD := 4
 const LOCK_TIME := 5.0
 const LOCK_WEIGHT := 2.0 # gravedad x2 mientras lo tenés pegado
 const PADLOCK_CHANCE := 0.12 # de lo que aparece en el cielo
+
+# Más arriba todavía: ovnis y astronautas (ya no hay aviones; los cohetes siguen)
+const UFO_ALT := 80.0
+const UFO_AMMO := 4
+const UFO_REWARD := 5
+const UFO_DAMAGE := 5 # el láser verde te saca 5 balas
+const UFO_SIGHT := 18.0
+const UFO_FIRE_EVERY := 3.0
+const UFO_AIM_TIME := 0.7 # aviso (línea finita) antes de disparar
+const UFO_BEAM_WIDTH := 0.6
+const ASTRONAUT_AMMO := 2
+const ASTRONAUT_REWARD := 3
+const ASTRONAUT_DAMAGE := 1
