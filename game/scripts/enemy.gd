@@ -182,11 +182,26 @@ func _build_mesh() -> void:
 	dark.roughness = 0.4
 	match kind:
 		"shield":
-			var sh := _mesh_box(SHIELD_SIZE, steel)
-			sh.position = SHIELD_POS
-			_vis.add_child(sh)
-			var boss := _mesh_box(Vector3(0.06, 0.3, 0.3), dark)
-			boss.position = SHIELD_POS + Vector3(-0.07, 0.05, 0)
+			# Escudo redondo: la colisión es una placa del lado de donde venís; el
+			# dibujo es un disco girado hacia la cámara para que se lea de costado.
+			var disc := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.5
+			cm.bottom_radius = 0.5
+			cm.height = 0.08
+			cm.material = steel
+			disc.mesh = cm
+			disc.position = SHIELD_POS
+			disc.rotation = Vector3(PI / 2.0, -0.9, 0.0)
+			disc.scale = Vector3(1.0, 1.0, 1.25)
+			_vis.add_child(disc)
+			var boss := MeshInstance3D.new()
+			var bm := SphereMesh.new()
+			bm.radius = 0.13
+			bm.height = 0.26
+			bm.material = dark
+			boss.mesh = bm
+			boss.position = SHIELD_POS + Vector3(-0.08, 0.0, 0.06)
 			_vis.add_child(boss)
 		"helmet":
 			var dome := MeshInstance3D.new()
@@ -206,11 +221,14 @@ func _build_mesh() -> void:
 			_sword_pivot = Node3D.new()
 			_sword_pivot.position = Vector3(-0.05, 1.32, 0.3)
 			_vis.add_child(_sword_pivot)
-			var blade := _mesh_box(Vector3(0.08, 1.1, 0.03), steel)
+			var blade := _mesh_box(Vector3(0.12, 1.1, 0.05), steel)
 			blade.position = Vector3(-0.35, -0.2, 0)
 			blade.rotation.z = -1.0
 			_sword_pivot.add_child(blade)
-			var guard := _mesh_box(Vector3(0.06, 0.06, 0.28), dark)
+			var gold := StandardMaterial3D.new()
+			gold.albedo_color = Color("ffcf3a")
+			gold.metallic = 0.7
+			var guard := _mesh_box(Vector3(0.1, 0.08, 0.3), gold)
 			guard.position = Vector3(-0.05, -0.4, 0)
 			_sword_pivot.add_child(guard)
 

@@ -95,6 +95,7 @@ void fragment() {
 	_ammo_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	_ammo_box.add_child(_bullet_icon())
 	_ammo = _label("5", 60, Color.WHITE, 14)
+	_ammo.autowrap_mode = TextServer.AUTOWRAP_OFF # si no, "10" se parte en dos líneas
 	_ammo_box.add_child(_ammo)
 	_root.add_child(_ammo_box)
 

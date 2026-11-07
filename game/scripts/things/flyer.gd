@@ -61,7 +61,9 @@ func _on_body(body: Node) -> void:
 func _physics_process(delta: float) -> void:
 	_t += delta
 	for i in _wings.size():
-		_wings[i].rotation.x = sin(_t * (22.0 if kind == "bat" else 9.0)) * 0.9 * (1 if i == 0 else -1)
+		# Alas en V que suben y bajan (vistas de costado se lee el aleteo).
+		var lift := 0.55 + sin(_t * (22.0 if kind == "bat" else 9.0)) * 0.55
+		_wings[i].rotation.x = lift * (1.0 if i == 0 else -1.0)
 	if not alive:
 		_fall_v += Tuning.values.gravity * delta
 		global_position.y -= _fall_v * delta
@@ -76,7 +78,7 @@ func _physics_process(delta: float) -> void:
 			var to: Vector3 = game.gun.global_position - global_position
 			if to.length() < Config.HAWK_SIGHT:
 				_dir = Vector3(to.x, to.y, 0.0).normalized()
-				_vis.scale.x = 1.0 if _dir.x >= 0.0 else -1.0
+				_vis.scale.x = absf(_vis.scale.x) * (1.0 if _dir.x >= 0.0 else -1.0)
 				game.sfx.play("screech", -4.0)
 		return
 	global_position += _dir * Config.HAWK_SPEED * delta
@@ -115,7 +117,6 @@ func _build_mesh() -> void:
 		beak.rotation.z = -PI / 2
 		beak.position = Vector3(0.55, 0.1, 0)
 		_vis.add_child(beak)
-		_vis.scale.x = -1.0 # mira hacia donde vas a venir (izquierda)
 	else:
 		for s in [-1, 1]:
 			var ear := MeshInstance3D.new()
@@ -136,7 +137,10 @@ func _build_mesh() -> void:
 			eye.mesh = e
 			eye.position = Vector3(s * 0.08, 0.06, 0.19)
 			_vis.add_child(eye)
-	var wing_len := 0.55 if kind == "bat" else 0.75
+	_vis.scale = Vector3.ONE * (1.3 if kind == "bat" else 1.4)
+	if kind == "hawk":
+		_vis.scale.x = -_vis.scale.x # mira hacia donde vas a venir (izquierda)
+	var wing_len := 0.6 if kind == "bat" else 0.85
 	var wing_mat := _mat(body_c.darkened(0.15) if kind == "bat" else Color("5c361c"))
 	for s in [-1, 1]:
 		var pivot := Node3D.new()
@@ -144,7 +148,7 @@ func _build_mesh() -> void:
 		_vis.add_child(pivot)
 		var w := MeshInstance3D.new()
 		var wm := BoxMesh.new()
-		wm.size = Vector3(0.4 if kind == "hawk" else 0.3, 0.03, wing_len)
+		wm.size = Vector3(0.45 if kind == "hawk" else 0.35, 0.04, wing_len)
 		wm.material = wing_mat
 		w.mesh = wm
 		w.position.z = s * wing_len / 2.0

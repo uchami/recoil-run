@@ -30,6 +30,18 @@ func _run() -> void:
 	await test_game_over_saves_attempt()
 	await test_world_streams()
 	await test_fall_in_gap()
+	await test_sounds()
+	await test_shield_and_helmet()
+	await test_sword()
+	await test_spring()
+	await test_bat()
+	await test_hawk()
+	await test_chest()
+	await test_trap_chest()
+	await test_power_streak()
+	await test_powers()
+	await test_hurt_without_ammo()
+	await test_special_levels()
 	await test_stress()
 	print("SMOKE OK" if failures == 0 else "SMOKE FAIL (%d)" % failures)
 	quit(1 if failures > 0 else 0)
@@ -396,3 +408,331 @@ func test_game_over_saves_attempt() -> void:
 	check(m.hud._over.visible and m.hud._over_board.get_child_count() >= 8, "game over muestra el leaderboard")
 	await despawn(m)
 	Records.reset()
+
+
+# --- mecánicas nuevas ---
+
+func clear_world(m: Node) -> void:
+	for e in m.enemies + m.entities:
+		if is_instance_valid(e):
+			e.queue_free()
+	m.enemies.clear()
+	m.entities.clear()
+
+
+func put(m: Node, type: String, x: float, y := 0.0) -> Node:
+	m._spawn_item({"type": type, "x": x, "y": y})
+	if type in ["plain", "sword", "shield", "helmet"]:
+		return m.enemies[-1]
+	return m.entities[-1]
+
+
+## Pone el arma quieta en pos apuntando a target y dispara en el mismo paso.
+func fire_at(m: Node, pos: Vector2, target: Vector3) -> void:
+	if m.state != m.State.PLAYING:
+		await place_gun(m, pos, 0.0)
+	var g: Gun = m.gun
+	var a := atan2(target.y - (pos.y + Gun.MUZZLE.y), target.x - pos.x)
+	g.global_transform = Transform3D(Basis(Vector3.BACK, a), Vector3(pos.x, pos.y, 0))
+	g.linear_velocity = Vector3.ZERO
+	g.angular_velocity = Vector3.ZERO
+	m._queued_shots = 1
+	await physics_frame
+	await physics_frame
+
+
+func test_sounds() -> void:
+	print("sonidos")
+	var m := await spawn()
+	check(m.sfx._streams.size() == Sfx.NAMES.size(), "cargan todos los sonidos (%d/%d)" % [m.sfx._streams.size(), Sfx.NAMES.size()])
+	await shoot_from_start(m, 0.0)
+	check("shot" in m.sfx.played, "suena el disparo")
+	await despawn(m)
+
+
+func test_shield_and_helmet() -> void:
+	print("escudo y casco")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var e: Enemy = put(m, "shield", 4.0)
+	await physics_frame
+	await fire_at(m, Vector2(-1.0, 0.9), e.global_position + Vector3(0, 0.8, 0))
+	check(e.alive, "escudo: el tiro al torso rebota")
+	check("clank" in m.sfx.played, "suena clank")
+	await fire_at(m, Vector2(-1.0, 1.7), e.global_position + Vector3(0, Enemy.HEAD_Y, 0))
+	check(not e.alive and m.headshots == 1, "escudo: a la cabeza lo mata (headshot)")
+	await despawn(m)
+
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	e = put(m, "helmet", 4.0)
+	await physics_frame
+	await fire_at(m, Vector2(-1.0, 1.7), e.global_position + Vector3(0, Enemy.HEAD_Y, 0))
+	check(e.alive, "casco: el tiro a la cabeza rebota")
+	await fire_at(m, Vector2(-1.0, 0.9), e.global_position + Vector3(0, 0.8, 0))
+	check(not e.alive and m.headshots == 0, "casco: al torso lo mata")
+	await despawn(m)
+
+
+func test_sword() -> void:
+	print("espadachín")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var e: Enemy = put(m, "sword", 4.0)
+	m.ammo = 5
+	await place_gun(m, Vector2(3.0, 0.6), 0.0) # al lado del espadachín
+	var t0 := Time.get_ticks_msec()
+	while m.ammo == 5 and Time.get_ticks_msec() - t0 < 1500:
+		await physics_frame
+	check(m.ammo == 4, "te pega: -1 bala (%d)" % m.ammo)
+	await physics_frame
+	await physics_frame
+	check(m.gun.linear_velocity.x < -1.0, "te empuja lejos (vx=%.1f)" % m.gun.linear_velocity.x)
+	check("hurt" in m.sfx.played, "suena el golpe")
+	await despawn(m)
+
+
+func test_spring() -> void:
+	print("resorte")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	put(m, "spring", 2.0)
+	await place_gun(m, Vector2(2.0, 2.0), 0.0) # cae encima
+	var min_vx := 0.0
+	for i in 120:
+		await physics_frame
+		min_vx = minf(min_vx, m.gun.linear_velocity.x)
+	check(min_vx < Config.SPRING_VELOCITY.x * 0.9, "te manda para atrás (vx=%.1f)" % min_vx)
+	check("boing" in m.sfx.played, "suena boing")
+	await despawn(m)
+
+
+func test_bat() -> void:
+	print("murciélago")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var b: Flyer = put(m, "bat", 0.0, 4.0)
+	m.ammo = 5
+	await place_gun(m, Vector2(0.0, 4.0), 0.0)
+	await wait_s(0.3)
+	check(m.ammo == 4, "si te choca: -1 bala (%d)" % m.ammo)
+	check(not b.alive, "y se muere")
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	b = put(m, "bat", 5.0, 3.0)
+	await physics_frame
+	await fire_at(m, Vector2(0.0, 3.0), b.global_position)
+	check(not b.alive, "se lo puede matar de un tiro")
+	check(m.ammo == Config.START_AMMO - 1 + Config.FLYER_REWARD, "da +%d" % Config.FLYER_REWARD)
+	await despawn(m)
+
+
+func test_hawk() -> void:
+	print("halcón")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var h: Flyer = put(m, "hawk", 8.0, 6.0)
+	await place_gun(m, Vector2(0.0, 2.0), 0.0)
+	await physics_frame
+	var seen: Vector3 = m.gun.global_position
+	await wait_s(0.5)
+	check(h._dir != Vector3.ZERO, "te ve y arranca")
+	var dir: Vector3 = h._dir
+	var expected := Vector3(seen.x - 8.0, seen.y - 6.0, 0).normalized()
+	check(dir.dot(expected) > 0.97, "va hacia donde te vio (dot %.2f)" % dir.dot(expected))
+	var p0 := h.global_position
+	await wait_s(1.0)
+	var v := (h.global_position - p0).length()
+	check(v < Config.HAWK_SPEED * 1.3 and v > Config.HAWK_SPEED * 0.6, "lento (%.1f m/s)" % v)
+	await despawn(m)
+	# golpe: -1 bala y te hace girar
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	h = put(m, "hawk", 2.0, 3.0)
+	m.ammo = 5
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var spun := 0.0
+	var t0 := Time.get_ticks_msec()
+	while m.ammo == 5 and Time.get_ticks_msec() - t0 < 2500:
+		m.gun.global_position = Vector3(0.0, 3.0, 0.0) # lo esperamos quietos
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	await physics_frame
+	await physics_frame
+	spun = absf(m.gun.angular_velocity.z)
+	check(m.ammo == 4, "si te toca: -1 bala (%d)" % m.ammo)
+	check(spun > Config.HAWK_SPIN * 0.5, "te hace girar (%.1f rad/s)" % spun)
+	await despawn(m)
+
+
+func test_chest() -> void:
+	print("cofre")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var c: Chest = put(m, "chest", 4.0)
+	await physics_frame
+	for i in 3:
+		await fire_at(m, Vector2(0.0, 1.0), c.global_position + Vector3(0, 0.4, 0))
+		await wait_s(0.1)
+	var pickups: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Pickup)
+	check(c.hp == 0, "muere con 3 tiros")
+	check(pickups.size() == 3 * Config.CHEST_SPIT, "escupió %d balas" % pickups.size())
+	check(not m.entities.any(func(n): return is_instance_valid(n) and n is Mimic), "no es trampa")
+	var before: int = m.ammo
+	await wait_s(1.5) # que caigan
+	var p: Pickup = pickups[0]
+	await place_gun(m, Vector2(p.global_position.x, p.global_position.y + 0.3), 0.0)
+	await wait_s(0.3)
+	check(m.ammo == before + 1 or m.ammo > before, "recoger una suma bala (%d -> %d)" % [before, m.ammo])
+	await despawn(m)
+
+
+func test_trap_chest() -> void:
+	print("cofre trampa")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var c: Chest = put(m, "trap", 6.0)
+	await physics_frame
+	for i in 3:
+		await fire_at(m, Vector2(0.0, 1.0), c.global_position + Vector3(0, 0.4, 0))
+	await physics_frame
+	var mimics: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Mimic)
+	check(mimics.size() == 1, "al morir abre la boca (mimic)")
+	if mimics.is_empty():
+		await despawn(m)
+		return
+	var mm: Mimic = mimics[0]
+	var d0: float = mm.global_position.distance_to(m.gun.global_position)
+	m.ammo = 6
+	var hold: Vector3 = m.gun.global_position
+	for i in 120: # 1 s con el arma quieta
+		m.gun.global_position = hold
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	var d1: float = mm.global_position.distance_to(m.gun.global_position)
+	check(d1 < d0 - Config.MIMIC_SPEED * 0.7 or m.ammo < 6, "te persigue (%.1f -> %.1f m)" % [d0, d1])
+	var t0 := Time.get_ticks_msec()
+	while m.ammo == 6 and Time.get_ticks_msec() - t0 < 4000:
+		await physics_frame
+	check(m.ammo == 6 - Config.MIMIC_DAMAGE, "si te toca: -%d balas (%d)" % [Config.MIMIC_DAMAGE, m.ammo])
+	await despawn(m)
+
+
+func test_power_streak() -> void:
+	print("3 headshots seguidos => poder")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	for i in 3:
+		var e: Enemy = put(m, "plain", 4.0 + i * 1.5)
+		await physics_frame
+		await fire_at(m, Vector2(0.0, 1.7), e.global_position + Vector3(0, Enemy.HEAD_Y, 0))
+		Engine.time_scale = 1.0
+		m._slowmo_left = 0.0
+		var powers: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Pickup and n.kind.begins_with("power:"))
+		check(powers.size() == (1 if i == 2 else 0), "headshot %d: poderes sueltos = %d" % [i + 1, powers.size()])
+	check(m.streak == 3, "racha = 3")
+	await despawn(m)
+	# un kill al cuerpo corta la racha
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	m.streak = 2
+	var e2: Enemy = put(m, "plain", 4.0)
+	await physics_frame
+	await fire_at(m, Vector2(0.0, 0.9), e2.global_position + Vector3(0, 0.7, 0))
+	check(m.streak == 0, "un kill al cuerpo corta la racha")
+	await despawn(m)
+
+
+func test_powers() -> void:
+	print("poderes")
+	var m := await spawn()
+	await place_gun(m, Vector2(-3.0, 3.0), 0.0)
+	m.ammo = 2
+	m._activate_power("infinite", Vector3.ZERO)
+	for i in 4:
+		m._queued_shots = 1
+		await physics_frame
+	check(m.ammo == 2, "balas infinitas: no gasta (%d)" % m.ammo)
+	m._activate_power("laser", Vector3.ZERO)
+	await process_frame
+	await process_frame
+	check(m._laser.visible, "láser visible")
+	var a: int = m.ammo
+	m._activate_power("ammo15", Vector3.ZERO)
+	check(m.ammo == a + 15, "+15 balas")
+	m._activate_power("untouchable", Vector3.ZERO)
+	var b: int = m.ammo
+	m._hurt_cd = 0.0
+	m.hurt(2, Vector3.ZERO)
+	check(m.ammo == b, "intocable: no te sacan balas")
+	m.powers.infinite = 0.01
+	await wait_s(0.1)
+	check(not m.power_on("infinite"), "los poderes se terminan")
+	# juntar el orbe da el poder
+	var p: Pickup = m.spawn_pickup("power:laser", m.gun.global_position + Vector3(0.3, 0, 0), Vector3.ZERO, true)
+	m.powers.erase("laser")
+	await wait_s(0.3)
+	check(m.power_on("laser"), "tocar el orbe activa el poder")
+	await despawn(m)
+
+
+func test_hurt_without_ammo() -> void:
+	print("golpe sin balas = muerte")
+	var m := await spawn()
+	await place_gun(m, Vector2(-3.0, 3.0), 0.0)
+	m.ammo = 1
+	m.hurt(1, Vector3.ZERO)
+	check(m.ammo == 0 and m.state == m.State.PLAYING, "con 1 bala: quedás en 0 pero vivo")
+	m._hurt_cd = 0.0
+	m.hurt(1, Vector3.ZERO)
+	check(m.state == m.State.OVER, "sin balas: el golpe te mata")
+	await despawn(m)
+
+
+func test_special_levels() -> void:
+	print("niveles especiales")
+	for sp in ["stairs_down", "stairs_up", "air"]:
+		var lv := Level.new(5, sp)
+		var bs := [lv.next_block()]
+		while bs[-1].x1 < 400.0:
+			bs.append(lv.next_block())
+		var sb := bs.filter(func(b): return b.special == sp)
+		check(sb.size() > 0, "%s arranca apenas termina el arranque" % sp)
+		if sp == "air":
+			var gap: float = sb[0].x0 - bs[0].x1
+			check(gap >= Level.AIR_LEN - 15.0, "aéreo: %.0fm sin piso" % gap)
+			check(absf(sb[0].top - bs[0].top) < 0.01, "aéreo: salida a la misma altura")
+			check(sb[0].items.filter(func(it): return it.type == "ammo").size() > 15, "aéreo: balas flotando")
+			continue
+		var length: float = sb[-1].x1 - sb[0].x0
+		var dh: float = sb[-1].top - bs[0].top
+		check(length >= Level.STAIRS_LEN - 10.0, "%s: %.0fm de largo" % [sp, length])
+		check(dh < -40.0 if sp == "stairs_down" else dh > 40.0, "%s: cambio de altura %.0fm" % [sp, dh])
+		var gaps := 0
+		for i in range(1, sb.size()):
+			if sb[i].x0 - sb[i - 1].x1 > 0.5:
+				gaps += 1
+		check(gaps > 5, "%s: con huecos (%d)" % [sp, gaps])
+		# el piso normal sigue alrededor de la nueva altura
+		var after := bs.filter(func(b): return b.special == "" and b.x0 > sb[-1].x1)
+		if not after.is_empty():
+			check(absf(after[0].top - sb[-1].top) <= Level.MAX_STEP_DOWN + 0.1, "%s: después sigue desde esa altura" % sp)
+	# probar nivel desde AJUSTES
+	Level.debug_special = "air"
+	var m := await spawn()
+	check(m.level.special == "" and m.blocks.size() >= 2 and m.blocks[1].special == "air", "PROBAR NIVEL arranca con ese nivel")
+	check(Level.debug_special == "", "y vale para una sola partida")
+	await despawn(m)
