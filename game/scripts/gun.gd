@@ -21,6 +21,8 @@ var _knock_vel := Vector3.ZERO
 var _knock_spin := 0.0
 var _prev_speed := 0.0
 var _glow: StandardMaterial3D
+var _updraft := -1.0 # ventilador: velocidad de subida pedida en este paso (-1 = nada)
+var _updraft_x := 0.0
 var _shot_dir := Vector2.RIGHT
 var grounded := false
 var _from_rest := false
@@ -89,6 +91,12 @@ func knock(vel: Vector3, spin := 0.0) -> void:
 	_knock_spin = spin
 
 
+## Ventilador: en este paso de física, subí al menos a vy y acercate al centro.
+func updraft(vy: float, center_x: float) -> void:
+	_updraft = vy
+	_updraft_x = center_x
+
+
 ## Brillo sobre el arma (poder intocable); null lo apaga.
 func set_glow(color: Variant) -> void:
 	if color == null:
@@ -135,6 +143,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		vy = maxf(vy, lift)
 		state.linear_velocity = Vector3(v.x + recoil.x, vy, 0.0)
 		state.angular_velocity = Vector3(0.0, 0.0, Tuning.values.spin_on_shot)
+		return
+
+	if _updraft >= 0.0:
+		var lv := state.linear_velocity
+		var vx := lerpf(lv.x, (_updraft_x - state.transform.origin.x) * 2.0, 0.08) # se centra en la columna
+		state.linear_velocity = Vector3(vx, maxf(lv.y, _updraft), 0.0)
+		_updraft = -1.0
 		return
 
 	# Tope de velocidad de caída: planea en vez de desplomarse.

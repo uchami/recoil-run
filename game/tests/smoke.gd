@@ -37,6 +37,7 @@ func _run() -> void:
 	await test_sky_spawner()
 	await test_altitude_zones()
 	await test_plane()
+	await test_fan()
 	await test_rocket()
 	await test_bat()
 	await test_hawk()
@@ -332,9 +333,17 @@ func test_level_generator() -> void:
 		min_sep = minf(min_sep, enemy_xs[i] - enemy_xs[i - 1])
 	check(enemy_xs.size() > 150, "personajes infinitos (%d en 3km)" % enemy_xs.size())
 	check(min_sep >= 2.0, "espaciados (mínimo %.1fm entre dos)" % min_sep)
+	var fan_xs := []
+	for b in bs:
+		for it in b.items:
+			if it.type == "fan":
+				fan_xs.append(it.x)
+	check(fan_xs.size() >= 3 and fan_xs.size() < 40, "ventiladores: pocos (%d en 3km)" % fan_xs.size())
+	check(fan_xs.all(func(x): return x > Config.FAN_FROM), "ventiladores solo pasados los %dm" % Config.FAN_FROM)
 	for t in ["plain", "sword", "shield", "helmet", "chest", "trap", "spring", "bat", "ammo"]:
 		check(types.get(t, 0) > 0, "aparece %s (%d)" % [t, types.get(t, 0)])
-	check(types.get("trap", 0) < types.get("chest", 0), "trampas: menos que cofres (%d de %d)" % [types.get("trap", 0), types.get("chest", 0) + types.get("trap", 0)])
+	var total_chests: int = types.get("chest", 0) + types.get("trap", 0)
+	check(types.get("trap", 0) < total_chests * 0.6, "trampas: la minoría (%d de %d)" % [types.get("trap", 0), total_chests])
 	for sp in Level.SPECIALS:
 		check(specials.has(sp), "aparece el nivel %s" % sp)
 	var other := Level.new(99)
@@ -909,4 +918,27 @@ func test_rocket() -> void:
 	await fire_at(m, Vector2(0.0, 3.0), r.global_position)
 	check(not is_instance_valid(r) or not r.alive, "un tiro lo explota")
 	check(m.ammo == Config.START_AMMO - 1 + Config.ROCKET_REWARD, "+%d" % Config.ROCKET_REWARD)
+	await despawn(m)
+
+
+func test_fan() -> void:
+	print("ventilador")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	put(m, "fan", 3.0)
+	await place_gun(m, Vector2(3.0, 1.0), 0.0)
+	var peak := 0.0
+	var spawned := 0
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 6000:
+		peak = maxf(peak, m.gun.global_position.y)
+		if peak < Config.ROCKET_ALT - 3.0: # durante la subida
+			spawned = m.entities.filter(func(n): return is_instance_valid(n) and (n is Flyer or n is Airplane or n is Rocket)).size()
+		if absf(m.gun.linear_velocity.y) < 0.5 and peak > 10.0:
+			break # llegó arriba
+		await physics_frame
+	check(absf(peak - Config.ROCKET_ALT) < 2.5, "te sube justo hasta donde empiezan los cohetes (%.1f m)" % peak)
+	check(spawned == 0, "la subida es limpia: no aparecen bichos en el camino (%d)" % spawned)
+	check(absf(m.gun.global_position.x - 3.0) < Config.FAN_WIDTH, "te mantiene en la columna (x=%.1f)" % m.gun.global_position.x)
 	await despawn(m)

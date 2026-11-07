@@ -95,3 +95,9 @@ const ROCKET_SPEED := 9.0
 const ROCKET_DAMAGE := 2
 const ROCKET_REWARD := 1
 const ROCKET_SIGHT := 22.0
+
+# Ventilador: pasados los 500 m, a veces. Te sube hasta donde empiezan los cohetes.
+const FAN_FROM := 500.0
+const FAN_CHANCE := 0.06 # por bloque
+const FAN_WIDTH := 2.4
+const FAN_MAX_SPEED := 14.0

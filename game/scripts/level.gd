@@ -162,6 +162,11 @@ func _finish_block(length: float, kind: String) -> Dictionary:
 
 	# Ítems de piso: uno cada ITEM_SPACING metros; si el lugar cae en un hueco o
 	# muy al borde, se corre al principio del bloque siguiente.
+	# Ventilador: pasados FAN_FROM metros, a veces, en el medio del bloque.
+	if kind == "" and b.x0 > Config.FAN_FROM and rng.randf() < Config.FAN_CHANCE and b.x1 - b.x0 > Config.FAN_WIDTH + 1.0:
+		b.items.append({"type": "fan", "x": (b.x0 + b.x1) / 2.0, "y": b.top})
+		_next_item_x = maxf(_next_item_x, b.x1) # nada más arriba de este bloque
+
 	if _next_item_x < b.x0 + ITEM_EDGE:
 		_next_item_x = b.x0 + ITEM_EDGE + rng.randf_range(0.0, 1.5)
 	while _next_item_x <= b.x1 - ITEM_EDGE:

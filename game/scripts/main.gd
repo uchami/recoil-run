@@ -55,6 +55,7 @@ var _sky_mat: ProceduralSkyMaterial
 var _sky_day := {}
 var _stars_mat: StandardMaterial3D
 var space_t := 0.0 # 0 = cielo violeta, 1 = espacio (negro con estrellas)
+var fan_ride := 0.0 # > 0 mientras un ventilador te sube (lo renueva en cada paso)
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
 var _sky_next := 12.0
 var _sky_last := Vector3.ZERO
@@ -401,7 +402,8 @@ func _process(delta: float) -> void:
 		max_height = maxi(max_height, floori(p.y))
 	max_ammo = maxi(max_ammo, ammo)
 	_stream_world(p.x)
-	if state == State.PLAYING:
+	fan_ride -= real_dt
+	if state == State.PLAYING and fan_ride <= 0.0: # la subida en ventilador es limpia
 		_sky_spawner(p)
 	_hurt_cd -= real_dt
 	for k in powers.keys():
@@ -649,6 +651,8 @@ func _spawn_item(it: Dictionary) -> void:
 			n = f
 		"plane":
 			n = Airplane.new()
+		"fan":
+			n = Fan.new()
 		"rocket":
 			n = Rocket.new()
 		_:
@@ -727,7 +731,7 @@ func _prewarm() -> void:
 		var f := Flyer.new()
 		f.kind = k
 		holder.add_child(f)
-	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new()]:
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new()]:
 		holder.add_child(n)
 	for i in 3:
 		await get_tree().process_frame
