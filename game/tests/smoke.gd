@@ -34,6 +34,7 @@ func _run() -> void:
 	await test_shield_and_helmet()
 	await test_sword()
 	await test_spring()
+	await test_sky_spawner()
 	await test_bat()
 	await test_hawk()
 	await test_chest()
@@ -327,7 +328,7 @@ func test_level_generator() -> void:
 		min_sep = minf(min_sep, enemy_xs[i] - enemy_xs[i - 1])
 	check(enemy_xs.size() > 150, "personajes infinitos (%d en 3km)" % enemy_xs.size())
 	check(min_sep >= 2.0, "espaciados (mínimo %.1fm entre dos)" % min_sep)
-	for t in ["plain", "sword", "shield", "helmet", "chest", "trap", "spring", "hawk", "bat", "ammo"]:
+	for t in ["plain", "sword", "shield", "helmet", "chest", "trap", "spring", "bat", "ammo"]:
 		check(types.get(t, 0) > 0, "aparece %s (%d)" % [t, types.get(t, 0)])
 	check(types.get("trap", 0) < types.get("chest", 0), "trampas: menos que cofres (%d de %d)" % [types.get("trap", 0), types.get("chest", 0) + types.get("trap", 0)])
 	for sp in Level.SPECIALS:
@@ -496,18 +497,45 @@ func test_sword() -> void:
 
 
 func test_spring() -> void:
-	print("resorte")
+	print("resorte vertical")
+	var res := []
+	for speed in [3.0, 9.0]:
+		var m := await spawn()
+		clear_world(m)
+		await physics_frame
+		put(m, "spring", 4.0)
+		await place_gun(m, Vector2(1.0, 1.3), 0.0)
+		m.gun.linear_velocity = Vector3(speed, 0.0, 0.0)
+		var min_vx := 0.0
+		var max_spin := -1.0
+		for i in 90:
+			await physics_frame
+			min_vx = minf(min_vx, m.gun.linear_velocity.x)
+			if max_spin < 0.0 and m.gun.linear_velocity.x < -1.0: # justo después del choque
+				max_spin = absf(m.gun.angular_velocity.z)
+		check(min_vx < -Config.SPRING_BASE_PUSH, "choque a %.0f m/s: te devuelve (vx=%.1f)" % [speed, min_vx])
+		check(m.gun.global_position.x < 3.0, "no lo atravesás (x=%.1f)" % m.gun.global_position.x)
+		res.append([min_vx, max_spin])
+		await despawn(m)
+	check(res[1][0] < res[0][0] - 3.0, "choque fuerte empuja más (%.1f vs %.1f)" % [res[1][0], res[0][0]])
+	check(res[1][1] > res[0][1] + 3.0, "choque fuerte te hace girar más (%.1f vs %.1f rad/s)" % [res[1][1], res[0][1]])
+
+
+func test_sky_spawner() -> void:
+	print("bichos a cualquier altura")
 	var m := await spawn()
 	clear_world(m)
-	await physics_frame
-	put(m, "spring", 2.0)
-	await place_gun(m, Vector2(2.0, 2.0), 0.0) # cae encima
-	var min_vx := 0.0
-	for i in 120:
-		await physics_frame
-		min_vx = minf(min_vx, m.gun.linear_velocity.x)
-	check(min_vx < Config.SPRING_VELOCITY.x * 0.9, "te manda para atrás (vx=%.1f)" % min_vx)
-	check("boing" in m.sfx.played, "suena boing")
+	await place_gun(m, Vector2(0.0, 30.0), 0.0)
+	var ys := []
+	for i in 400: # vuela hacia adelante a 30 m de altura
+		m.gun.global_position = Vector3(i * 0.25, 30.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await process_frame
+	for n in m.entities:
+		if is_instance_valid(n) and n is Flyer:
+			ys.append(n.global_position.y)
+	check(ys.size() >= 4, "aparecen bichos mientras avanzás (%d en 100 m)" % ys.size())
+	check(ys.all(func(y): return y > 25.0), "a tu altura, no en el piso (%s)" % str(ys.map(func(y): return snappedf(y, 0.1))))
 	await despawn(m)
 
 
@@ -732,9 +760,9 @@ func test_special_levels() -> void:
 				gaps += 1
 		check(gaps > 5, "%s: con huecos (%d)" % [sp, gaps])
 		# el piso normal sigue alrededor de la nueva altura
-		var after := bs.filter(func(b): return b.special == "" and b.x0 > sb[-1].x1)
+		var after := bs.filter(func(b): return b.special == "" and b.x0 >= sb[-1].x1)
 		if not after.is_empty():
-			check(absf(after[0].top - sb[-1].top) <= Level.MAX_STEP_DOWN + 0.1, "%s: después sigue desde esa altura" % sp)
+			check(absf(after[0].top - sb[-1].top) <= Level.MAX_STEP_DOWN + 0.1, "%s: después sigue desde esa altura (%.1f -> %.1f)" % [sp, sb[-1].top, after[0].top])
 	# probar nivel desde AJUSTES
 	Level.debug_special = "air"
 	var m := await spawn()

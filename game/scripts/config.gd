@@ -43,8 +43,17 @@ const SWORD_REACH := 1.5 # m alrededor del pecho
 const SWORD_COOLDOWN := 1.1
 const SWORD_KNOCK := Vector2(5.0, 4.0) # empujón al golpearte
 
-# Resorte: te manda para atrás
-const SPRING_VELOCITY := Vector2(-11.0, 7.0)
+# Resorte (vertical, como una pared): te devuelve para atrás; cuanto más fuerte
+# chocás, más fuerte te empuja y más te hace girar.
+const SPRING_HEIGHT := 2.7
+const SPRING_BASE_PUSH := 5.0
+const SPRING_PUSH_GAIN := 1.2 # m/s de empuje extra por cada m/s de choque
+const SPRING_MAX_PUSH := 20.0
+const SPRING_SPIN_GAIN := 1.2 # rad/s de giro por cada m/s de choque
+
+# Bichos voladores: aparecen alrededor de tu altura a medida que avanzás o subís
+const SKY_SPAWN_EVERY := Vector2(10.0, 18.0) # metros recorridos entre uno y otro
+const SKY_SPAWN_AHEAD := Vector2(14.0, 20.0)
 
 # Halcón: toma tu posición al verte y va lento en línea recta hacia ahí
 const HAWK_SIGHT := 13.0

@@ -48,6 +48,9 @@ var _rocks: Array[MeshInstance3D] = []
 var _flash_light: OmniLight3D
 var _hurt_cd := 0.0
 var _laser: MeshInstance3D
+var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
+var _sky_next := 12.0
+var _sky_last := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -254,11 +257,15 @@ func hurt(amount: int, from: Vector3, knock := Vector2.ZERO, spin := 0.0, _cause
 	_fx_puff(from.lerp(gun.global_position, 0.5), Color("ff4d6d"), 8, 0.5, false)
 
 
-func spring_launch(_spring: Node3D) -> void:
+## away: -1 = te devuelve a la izquierda (lo normal), +1 = a la derecha.
+func spring_launch(_spring: Node3D, away: float) -> void:
 	if state != State.PLAYING:
 		return
-	gun.knock(Vector3(Config.SPRING_VELOCITY.x, Config.SPRING_VELOCITY.y, 0.0), 6.0)
-	sfx.play("boing")
+	var impact := gun.linear_velocity.length()
+	var push := minf(Config.SPRING_BASE_PUSH + impact * Config.SPRING_PUSH_GAIN, Config.SPRING_MAX_PUSH)
+	var vel := Vector3(away * push, 2.0 + impact * 0.25, 0.0)
+	gun.knock(vel, -away * impact * Config.SPRING_SPIN_GAIN)
+	sfx.play("boing", linear_to_db(clampf(0.4 + impact / 12.0, 0.4, 1.0)))
 
 
 func collect(p: Pickup) -> void:
@@ -350,6 +357,8 @@ func _process(delta: float) -> void:
 		max_height = maxi(max_height, floori(p.y))
 	max_ammo = maxi(max_ammo, ammo)
 	_stream_world(p.x)
+	if state == State.PLAYING:
+		_sky_spawner(p)
 	_hurt_cd -= real_dt
 	for k in powers.keys():
 		powers[k] -= real_dt
@@ -528,6 +537,33 @@ func _keep(n, limit: float) -> bool:
 		n.queue_free()
 		return false
 	return true
+
+
+## Bichos voladores alrededor de tu altura: uno cada SKY_SPAWN_EVERY metros
+## recorridos hacia adelante o hacia arriba (subir rápido también los trae).
+func _sky_spawner(p: Vector3) -> void:
+	if _sky_last == Vector3.ZERO:
+		_sky_last = p
+	var d := p - _sky_last
+	_sky_last = p
+	_sky_progress += maxf(d.x, 0.0) + maxf(d.y, 0.0)
+	if _sky_progress < _sky_next:
+		return
+	_sky_progress = 0.0
+	_sky_next = randf_range(Config.SKY_SPAWN_EVERY.x, Config.SKY_SPAWN_EVERY.y)
+	var climbing := d.y > absf(d.x) * 1.5
+	var pos: Vector3
+	if climbing: # aparece arriba, fuera de pantalla
+		pos = Vector3(p.x + randf_range(-2.0, 8.0), p.y + randf_range(10.0, 14.0), 0.0)
+	else: # aparece adelante, cerca de tu altura
+		pos = Vector3(p.x + randf_range(Config.SKY_SPAWN_AHEAD.x, Config.SKY_SPAWN_AHEAD.y), p.y + randf_range(-2.0, 5.0), 0.0)
+	pos.y = maxf(pos.y, Level.top_at(blocks, pos.x) + 2.5) # nunca metido en el piso
+	_spawn_item({"type": sky_type(p.y - Level.top_at(blocks, p.x)), "x": pos.x, "y": pos.y})
+
+
+## Qué bicho toca según la altura sobre el piso.
+func sky_type(_altitude: float) -> String:
+	return "hawk" if randf() < 0.4 else "bat"
 
 
 func _spawn_item(it: Dictionary) -> void:

@@ -4,7 +4,8 @@ extends RefCounted
 ## El arranque es fijo (piso plano con los 3 personajes); de ahí en adelante, random.
 ## Cada tanto arranca un nivel especial (escalera abajo, escalera arriba, aéreo).
 ##
-## Cada bloque trae sus ítems: [{type, x, y}] con type en ITEM_TYPES.
+## Cada bloque trae sus ítems de piso: [{type, x, y}]. Los bichos voladores no salen
+## de acá: main.gd los hace aparecer alrededor de la altura del arma.
 
 const START := Vector2(0.0, 2.4)
 const ENEMY_XS := [4.0, 6.5, 9.0] # los 3 fijos del arranque
@@ -13,9 +14,7 @@ const START_LEN := 22.0
 const BLOCK_DEPTH := 40.0 # cuánto baja cada bloque por debajo de su techo
 const DEPTH := 3.2
 
-# Piso normal: alturas relativas a _base (que se mueve después de una escalera)
-const MIN_TOP := -6.0
-const MAX_TOP := 10.0
+# Piso normal: sin límite de altura (paseo al azar), solo el tamaño de cada escalón.
 const MAX_STEP_UP := 3.0 # pared máxima a trepar (un tiro desde el piso sube ~2.8 m)
 const MAX_STEP_DOWN := 5.0 # caída máxima entre bloques vecinos
 const MIN_STEP := 0.4 # para que los escalones se noten
@@ -30,10 +29,6 @@ const GAP_RAMP_DIST := 300.0 # metros hasta llegar al hueco más largo
 const ITEM_SPACING := Vector2(7.0, 14.0)
 const ITEM_EDGE := 0.8 # distancia mínima al borde del bloque
 const GROUND_WEIGHTS := {"plain": 3.0, "sword": 2.0, "shield": 2.0, "helmet": 2.0, "chest": 1.6, "spring": 1.2}
-const FLYER_FIRST := 45.0
-const FLYER_SPACING := Vector2(22.0, 40.0)
-const FLYER_HEIGHT := Vector2(3.0, 8.0) # sobre el piso
-const HAWK_CHANCE := 0.4
 
 # Niveles especiales
 const SPECIALS := ["stairs_down", "stairs_up", "air"]
@@ -57,10 +52,8 @@ var rng := RandomNumberGenerator.new()
 var special := "" # nivel especial en curso ("" = piso normal)
 var _x := START_X
 var _top := 0.0
-var _base := 0.0
 var _count := 0
 var _next_item_x := 0.0
-var _next_flyer_x := FLYER_FIRST
 var _next_special_x := SPECIAL_FIRST
 var _special_end := 0.0
 var _special_bag: Array = []
@@ -112,7 +105,6 @@ func _start_special() -> void:
 
 func _end_special() -> void:
 	special = ""
-	_base = _top # el piso normal sigue variando alrededor de donde terminó la escalera
 
 
 func _normal_block() -> Dictionary:
@@ -120,17 +112,10 @@ func _normal_block() -> Dictionary:
 		var ramp := clampf(_x / GAP_RAMP_DIST, 0.0, 1.0) * GAP_RAMP_MAX
 		_x += rng.randf_range(GAP_LEN.x, GAP_LEN.y + ramp)
 
-	var lo := _base + MIN_TOP
-	var hi := _base + MAX_TOP
-	var up := rng.randf() < UP_CHANCE
-	if _top + MIN_STEP > hi:
-		up = false
-	elif _top - MIN_STEP < lo:
-		up = true
-	if up:
-		_top = minf(_top + rng.randf_range(MIN_STEP, MAX_STEP_UP), maxf(hi, _top + MIN_STEP))
+	if rng.randf() < UP_CHANCE:
+		_top += rng.randf_range(MIN_STEP, MAX_STEP_UP)
 	else:
-		_top = maxf(_top - rng.randf_range(MIN_STEP, MAX_STEP_DOWN), minf(lo, _top - MIN_STEP))
+		_top -= rng.randf_range(MIN_STEP, MAX_STEP_DOWN)
 	return _finish_block(rng.randf_range(BLOCK_LEN.x, BLOCK_LEN.y), "")
 
 
@@ -165,7 +150,6 @@ func _air_block() -> Dictionary:
 	_x = x1
 	_end_special()
 	_next_item_x = _x + 3.0
-	_next_flyer_x = maxf(_next_flyer_x, _x + 20.0)
 	var b := _finish_block(10.0, "air")
 	b.items = items + b.items
 	return b
@@ -183,12 +167,6 @@ func _finish_block(length: float, kind: String) -> Dictionary:
 	while _next_item_x <= b.x1 - ITEM_EDGE:
 		b.items.append({"type": _pick_ground_type(), "x": _next_item_x, "y": b.top})
 		_next_item_x += rng.randf_range(ITEM_SPACING.x, ITEM_SPACING.y)
-
-	# Bichos voladores
-	while _next_flyer_x <= b.x1:
-		var t := "hawk" if rng.randf() < HAWK_CHANCE else "bat"
-		b.items.append({"type": t, "x": _next_flyer_x, "y": b.top + rng.randf_range(FLYER_HEIGHT.x, FLYER_HEIGHT.y)})
-		_next_flyer_x += rng.randf_range(FLYER_SPACING.x, FLYER_SPACING.y)
 	return b
 
 
