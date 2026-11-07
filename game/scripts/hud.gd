@@ -376,6 +376,65 @@ func set_powers(powers: Dictionary) -> void:
 		l.text = "%s  %ds" % [POWER_LABELS.get(keys[i], keys[i]), ceili(powers[keys[i]])]
 
 
+## "¡NIVEL ESPECIAL!" con confeti (en tiempo real, aunque haya slow-mo).
+func special_banner(reward: int) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var box := VBoxContainer.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_constant_override("separation", -10)
+	var title := _label("¡NIVEL ESPECIAL!", 78, Color("ffe14a"), 18)
+	var sub := _label("+%d BALAS" % reward, 54, Color.WHITE, 14)
+	box.add_child(title)
+	box.add_child(sub)
+	_confetti(Vector2(vp.x / 2.0, -20.0), vp.x) # antes que el cartel: queda por detrás
+	_root.add_child(box)
+	var bs := box.get_combined_minimum_size()
+	box.size = bs
+	box.position = Vector2((vp.x - bs.x) / 2.0, vp.y * 0.3)
+	box.pivot_offset = bs / 2.0
+	box.scale = Vector2.ZERO
+	box.rotation = -0.25
+	var tw := create_tween().set_ignore_time_scale()
+	tw.tween_property(box, "scale", Vector2.ONE * 1.25, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(box, "rotation", 0.06, 0.25)
+	for i in 3: # "wichi wow": se bambolea
+		tw.tween_property(box, "rotation", -0.06, 0.12)
+		tw.tween_property(box, "rotation", 0.06, 0.12)
+	tw.tween_property(box, "rotation", 0.0, 0.1)
+	tw.parallel().tween_property(box, "scale", Vector2.ONE, 0.1)
+	tw.tween_interval(0.9)
+	tw.tween_property(box, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(box.queue_free)
+
+
+func _confetti(at: Vector2, width: float) -> void:
+	var p := CPUParticles2D.new()
+	p.position = at
+	p.amount = 140
+	p.lifetime = 2.6
+	p.one_shot = true
+	p.explosiveness = 0.85
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	p.emission_rect_extents = Vector2(width / 2.0, 10.0)
+	p.direction = Vector2.DOWN
+	p.spread = 25.0
+	p.initial_velocity_min = 250.0
+	p.initial_velocity_max = 650.0
+	p.gravity = Vector2(0, 520)
+	p.angular_velocity_min = -540.0
+	p.angular_velocity_max = 540.0
+	p.scale_amount_min = 10.0
+	p.scale_amount_max = 18.0
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+	g.colors = PackedColorArray([Color("ff3b6b"), Color("ffe14a"), Color("4dd2ff"), Color("7dff6b"), Color("b46cff"), Color("ff9a3b")])
+	g.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+	p.color_initial_ramp = g
+	_root.add_child(p)
+	p.emitting = true
+	get_tree().create_timer(3.2, true, false, true).timeout.connect(p.queue_free)
+
+
 func flash_hurt() -> void:
 	_hurt_flash.color.a = 0.45
 	var tw := create_tween().set_ignore_time_scale()

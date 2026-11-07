@@ -38,6 +38,7 @@ func _run() -> void:
 	await test_altitude_zones()
 	await test_plane()
 	await test_fan()
+	await test_special_done()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
 	await test_camera_bot_gameplay()
@@ -1057,4 +1058,33 @@ func test_camera_bot_gameplay() -> void:
 	check(max_alt > 25.0, "voló alto (%.0fm)" % max_alt)
 	check(bad < frames * 0.01, "el arma en pantalla todo el tiempo (%d de %d cuadros afuera)" % [bad, frames])
 	check(top_edge < climbing * 0.2, "subiendo, el arma no queda pegada arriba: se ve lo que viene (%d de %d cuadros en el 30%% de arriba)" % [top_edge, climbing])
+	await despawn(m)
+
+
+func test_special_done() -> void:
+	print("pasar un nivel especial")
+	Level.debug_special = "stairs_up"
+	var m := await spawn()
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var end_x := 0.0
+	for i in 200: # que se genere hasta el final de la escalera
+		m._stream_world(m.blocks[-1].x1)
+		if not m.special_ends.is_empty():
+			end_x = m.special_ends[0].x
+			break
+	check(end_x > 250.0, "se sabe dónde termina (x=%.0f)" % end_x)
+	var before: int = m.ammo
+	m.gun.freeze = true
+	m.gun.global_position = Vector3(end_x - 1.0, Level.top_at(m.blocks, end_x - 1.0) + 2.0, 0)
+	await process_frame
+	await process_frame
+	check(m.specials_done == 0, "antes del final, nada")
+	m.gun.global_position = Vector3(end_x + 1.0, Level.top_at(m.blocks, end_x + 1.0) + 2.0, 0)
+	await process_frame
+	await process_frame
+	check(m.specials_done == 1, "al pasarlo: ¡NIVEL ESPECIAL!")
+	check(m.ammo == before + Config.SPECIAL_REWARD, "+%d balas (%d -> %d)" % [Config.SPECIAL_REWARD, before, m.ammo])
+	check("fanfare" in m.sfx.played, "suena la fanfarria")
+	await process_frame
+	check(m.specials_done == 1, "una sola vez")
 	await despawn(m)

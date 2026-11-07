@@ -56,6 +56,8 @@ var _sky_mat: ProceduralSkyMaterial
 var _sky_day := {}
 var _stars_mat: StandardMaterial3D
 var space_t := 0.0 # 0 = cielo violeta, 1 = espacio (negro con estrellas)
+var special_ends: Array = [] # [{x, kind}] fin de cada nivel especial ya generado
+var specials_done := 0
 var fan_ride := 0.0 # > 0 mientras un ventilador te sube (lo renueva en cada paso)
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
 var _sky_next := 12.0
@@ -345,6 +347,15 @@ func spawn_pickup(kind: String, pos: Vector3, vel: Vector3, floating := false) -
 	return p
 
 
+## Pasaste un nivel especial: cartel, confeti y balas extra.
+func _special_done() -> void:
+	specials_done += 1
+	ammo += Config.SPECIAL_REWARD
+	hud.bump_ammo()
+	hud.special_banner(Config.SPECIAL_REWARD)
+	sfx.play("fanfare")
+
+
 func explosion_fx(at: Vector3) -> void:
 	_fx_puff(at, Color("ff8a1a"), 26, 0.9, false)
 	_fx_puff(at, Color("4a4550"), 14, 1.2, false)
@@ -403,6 +414,10 @@ func _process(delta: float) -> void:
 		max_height = maxi(max_height, floori(p.y))
 	max_ammo = maxi(max_ammo, ammo)
 	_stream_world(p.x)
+	if not special_ends.is_empty() and p.x > special_ends[0].x:
+		special_ends.pop_front()
+		if state == State.PLAYING:
+			_special_done()
 	fan_ride -= real_dt
 	if state == State.PLAYING and fan_ride <= 0.0: # la subida en ventilador es limpia
 		_sky_spawner(p)
@@ -578,6 +593,8 @@ func _stream_world(x: float) -> void:
 	_stream_x = maxf(_stream_x, x)
 	while blocks.is_empty() or blocks[-1].x1 < _stream_x + GEN_AHEAD:
 		var b := level.next_block()
+		if not blocks.is_empty() and blocks[-1].special != "" and b.special == "":
+			special_ends.append({"x": blocks[-1].x1, "kind": blocks[-1].special})
 		_add_block(b)
 		for it in b.items:
 			_spawn_item(it)

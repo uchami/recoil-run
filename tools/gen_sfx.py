@@ -213,13 +213,43 @@ def engine():
     return [((1 if math.sin(p) > 0 else -1) * 0.4 + nz() * 0.8) * env(i / SR, 0.15, 0.4) for i, p in enumerate(ph)]
 
 
+def fanfare():
+    out = []
+    for fr, d in ((523, 0.1), (659, 0.1), (784, 0.1), (1047, 0.35)):
+        out += render(d, lambda t, fr=fr: (math.sin(2 * math.pi * fr * t) + 0.5 * math.sin(4 * math.pi * fr * t)
+                                           + 0.25 * math.sin(6 * math.pi * fr * t)) * env(t, 0.004, d * 0.9))
+    # "wichi wow": barrido con vibrato
+    n = int(0.6 * SR)
+    phase = 0.0
+    for i in range(n):
+        t = i / SR
+        f = 500 + 700 * math.sin(math.pi * t / 0.6) + 40 * math.sin(2 * math.pi * 12 * t)
+        phase += 2 * math.pi * f / SR
+        out.append(math.sin(phase) * 0.6 * env(t, 0.02, 0.3))
+    return out
+
+
+def laser():
+    ph = sweep_phase(2400, 300, 0.35)
+    return [((1 if math.sin(p) > 0 else -1) * 0.5 + math.sin(p * 0.5) * 0.5) * env(i / SR, 0.002, 0.12) for i, p in enumerate(ph)]
+
+
+def lock():
+    out = render(0.06, lambda t: math.sin(2 * math.pi * 1800 * t) * env(t, 0.0005, 0.01))
+    out += [0.0] * int(0.05 * SR)
+    nz = Noise(0.4)
+    out += render(0.15, lambda t: (nz() + math.sin(2 * math.pi * 300 * t)) * env(t, 0.0005, 0.03))
+    return out
+
+
 SOUNDS = {
     "shot": (shot, 0.95), "empty": (empty, 0.6), "kill": (kill, 0.8), "headshot": (headshot, 0.9),
     "clank": (clank, 0.75), "hurt": (hurt, 0.7), "boing": (boing, 0.8), "chest_hit": (chest_hit, 0.8),
     "chest_open": (chest_open, 0.7), "pickup": (pickup, 0.55), "powerup": (powerup, 0.75),
     "screech": (screech, 0.5), "squeak": (squeak, 0.5), "chomp": (chomp, 0.85), "game_over": (game_over, 0.6),
     "land": (land, 0.6), "slowmo": (slowmo, 0.6), "flap": (flap, 0.4),
-    "explosion": (explosion, 0.95), "engine": (engine, 0.5),
+    "explosion": (explosion, 0.95), "engine": (engine, 0.5), "fanfare": (fanfare, 0.8),
+    "laser": (laser, 0.6), "lock": (lock, 0.8),
 }
 
 if __name__ == "__main__":

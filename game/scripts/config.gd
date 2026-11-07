@@ -101,3 +101,6 @@ const FAN_FROM := 500.0
 const FAN_CHANCE := 0.06 # por bloque
 const FAN_WIDTH := 2.4
 const FAN_MAX_SPEED := 14.0
+
+# Pasar un nivel especial
+const SPECIAL_REWARD := 5
