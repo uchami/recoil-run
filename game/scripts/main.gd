@@ -10,6 +10,7 @@ const CAM_OFFSET := Vector3(-2.2, 1.3, 0.0) # vista 3/4 desde atrás y un poco a
 const LOOK_AHEAD := 3.5
 const GAP_CAM_LOOKAHEAD := 5.0 # a esta distancia del borde de un hueco la cámara empieza a alejarse
 const GAP_CAM_MAX_WIDTH := 24.0 # ancho visible máximo al cruzar un hueco largo
+const CAM_KEEP := Vector2(0.7, 0.6) # el arma nunca sale de esta fracción central de la pantalla
 
 var state := State.READY
 var ammo := Config.START_AMMO
@@ -474,12 +475,20 @@ func _update_camera(real_dt: float) -> void:
 	# Cerca del piso, la cámara se inclina hacia él (para verlo); a gran altura sigue al arma.
 	var lean := clampf((p.y - ground) * 0.4, 0.0, 2.5)
 	var ty := maxf(p.y - lean, ground) + 1.6
-	var goal := Vector3(p.x + LOOK_AHEAD, ty, 0.0)
+	# En el aire, mirar hacia donde vas: subiendo rápido se ve lo que viene de arriba.
+	var vy := gun.linear_velocity.y if not gun.freeze else 0.0
+	var look_up := clampf(vy * 0.4, -2.5, 4.0) if p.y - ground > 3.0 else 0.0
+	var goal := Vector3(p.x + LOOK_AHEAD, ty + look_up, 0.0)
 	var want_width := VISIBLE_WIDTH
 
-	# Hueco adelante (o abajo): alejar y correr la cámara para que se vea dónde aterrizar.
+	# Hueco adelante (o abajo): si el piso se ve en pantalla, alejar y correr la cámara
+	# para que se vea dónde aterrizar. Si estás tan alto que el piso no se ve, no
+	# importa: la cámara solo te sigue. (Se mira con la vista normal, sin zoom, para
+	# que alejarse no haga aparecer el piso y la cámara no entre en un vaivén.)
 	var landing := _landing_block(p.x)
-	if not landing.is_empty() and landing.x0 - p.x < GAP_CAM_MAX_WIDTH * 1.5:
+	var base_half_h := maxf(VISIBLE_WIDTH / 2.0 / (t * aspect), MIN_VISIBLE_HEIGHT / 2.0 / t) * t
+	var floor_visible := not landing.is_empty() and maxf(ground, landing.top) > ty - base_half_h + 0.5
+	if floor_visible and landing.x0 - p.x < GAP_CAM_MAX_WIDTH * 1.5:
 		var left := p.x - 1.5
 		var right: float = landing.x0 + 2.5
 		want_width = clampf(right - left, VISIBLE_WIDTH, GAP_CAM_MAX_WIDTH)
@@ -489,6 +498,12 @@ func _update_camera(real_dt: float) -> void:
 	_cam_width = lerpf(_cam_width, want_width, 1.0 - exp(-real_dt * 3.0))
 	var dist := maxf(_cam_width / 2.0 / (t * aspect), MIN_VISIBLE_HEIGHT / 2.0 / t)
 	_cam_target = _cam_target.lerp(goal, 1.0 - exp(-real_dt * 5.0))
+	# Límite duro: por más rápido que vayas (resorte, ventilador, caída), el arma
+	# nunca se sale de la parte central de la pantalla.
+	var half_h := dist * t
+	var half_w := half_h * aspect
+	_cam_target.x = clampf(_cam_target.x, p.x - half_w * CAM_KEEP.x, p.x + half_w * CAM_KEEP.x)
+	_cam_target.y = clampf(_cam_target.y, p.y - half_h * CAM_KEEP.y, p.y + half_h * CAM_KEEP.y)
 	var slow_zoom := 1.0 - (1.0 - Engine.time_scale) * 0.18 # acerca un poco en slow-mo
 	camera.global_position = _cam_target + CAM_OFFSET + Vector3(0, 0, dist * slow_zoom)
 	camera.look_at(_cam_target)

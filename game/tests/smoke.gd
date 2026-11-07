@@ -38,6 +38,9 @@ func _run() -> void:
 	await test_altitude_zones()
 	await test_plane()
 	await test_fan()
+	await test_camera_follows_high_flight()
+	await test_camera_gap_zoom_only_if_floor_visible()
+	await test_camera_bot_gameplay()
 	await test_rocket()
 	await test_bat()
 	await test_hawk()
@@ -941,4 +944,117 @@ func test_fan() -> void:
 	check(absf(peak - Config.ROCKET_ALT) < 2.5, "te sube justo hasta donde empiezan los cohetes (%.1f m)" % peak)
 	check(spawned == 0, "la subida es limpia: no aparecen bichos en el camino (%d)" % spawned)
 	check(absf(m.gun.global_position.x - 3.0) < Config.FAN_WIDTH, "te mantiene en la columna (x=%.1f)" % m.gun.global_position.x)
+	await despawn(m)
+
+
+## Dónde se ve el arma en pantalla, en fracción (0..1) del ancho y alto.
+func gun_on_screen(m: Node) -> Vector2:
+	var vp: Vector2 = m.get_viewport().get_visible_rect().size
+	var sp: Vector2 = m.camera.unproject_position(m.gun.global_position)
+	return Vector2(sp.x / vp.x, sp.y / vp.y)
+
+
+func in_view(f: Vector2) -> bool:
+	return f.x > 0.03 and f.x < 0.97 and f.y > 0.05 and f.y < 0.95 # adentro, sin tocar los bordes
+
+
+func test_camera_follows_high_flight() -> void:
+	print("cámara: vuelo a distintas alturas cruzando huecos")
+	for alt in [2.0, 8.0, 15.0, 30.0, 60.0]:
+		var m := await spawn(31)
+		await place_gun(m, Vector2(0.0, 2.0 + alt), 0.0)
+		m.gun.freeze = true
+		var worst := Vector2(0.5, 0.5)
+		var worst_d := 0.0
+		var bad := 0
+		var x := 0.0
+		var gaps := 0
+		var was_gap := false
+		while x < 220.0:
+			x += 7.0 / 60.0
+			var ground := Level.top_at(m.blocks, x)
+			m.gun.global_position = Vector3(x, ground + alt, 0.0)
+			await process_frame
+			var is_gap := Level.block_at(m.blocks, x).is_empty()
+			if is_gap and not was_gap:
+				gaps += 1
+			was_gap = is_gap
+			if x < 10.0:
+				continue # que la cámara se acomode
+			var f := gun_on_screen(m)
+			if not in_view(f):
+				bad += 1
+			var d := (f - Vector2(0.5, 0.5)).length()
+			if d > worst_d:
+				worst_d = d
+				worst = f
+		check(bad == 0, "a %.0fm sobre el piso: el arma siempre en pantalla (%d cuadros afuera, peor %.2f,%.2f, %d huecos)" % [alt, bad, worst.x, worst.y, gaps])
+		await despawn(m)
+
+
+## Un bot que juega de verdad (física real): toca cuando el cañón apunta hacia
+## atrás-abajo, para volar hacia adelante y para arriba. Balas infinitas.
+func test_camera_gap_zoom_only_if_floor_visible() -> void:
+	print("cámara: zoom de hueco solo si el piso se ve")
+	var res := {}
+	for alt in [2.0, 40.0]:
+		var m := await spawn(31)
+		await place_gun(m, Vector2(0.0, 2.0 + alt), 0.0)
+		m.gun.freeze = true
+		var max_w := 0.0
+		var x := 0.0
+		while x < 220.0:
+			x += 7.0 / 60.0
+			m.gun.global_position = Vector3(x, Level.top_at(m.blocks, x) + alt, 0.0)
+			await process_frame
+			max_w = maxf(max_w, m._cam_width)
+		res[alt] = max_w
+		await despawn(m)
+	check(res[2.0] > m_visible_width() + 3.0, "volando bajo, los huecos sacan zoom (ancho máx %.1fm)" % res[2.0])
+	check(res[40.0] < m_visible_width() + 0.5, "volando alto, no (ancho máx %.1fm)" % res[40.0])
+
+
+func m_visible_width() -> float:
+	return 8.5
+
+
+func test_camera_bot_gameplay() -> void:
+	print("cámara: bot jugando en altura")
+	var m := await spawn(31)
+	clear_world(m)
+	m.ammo = 9999
+	m._hurt_cd = 9999.0
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var bad := 0
+	var top_edge := 0
+	var climbing := 0
+	var frames := 0
+	var max_alt := 0.0
+	var t0 := Time.get_ticks_msec()
+	var last_shot := 0
+	while Time.get_ticks_msec() - t0 < 20000 and m.state == m.State.PLAYING:
+		await physics_frame
+		var g: Gun = m.gun
+		var a := g.angle()
+		var alt: float = g.global_position.y - Level.top_at(m.blocks, g.global_position.x)
+		max_alt = maxf(max_alt, alt)
+		var want_up := alt < 35.0
+		# cañón hacia atrás y abajo => adelante y arriba (más vertical si quiere subir)
+		var target := deg_to_rad(-95.0 if want_up else -140.0)
+		if absf(wrapf(a - target, -PI, PI)) < 0.4 and (g.linear_velocity.y < 1.0 or want_up) and Time.get_ticks_msec() - last_shot > 120:
+			m._queued_shots = 1
+			last_shot = Time.get_ticks_msec()
+		m.ammo = 9999
+		frames += 1
+		var f := gun_on_screen(m)
+		if not in_view(f):
+			bad += 1
+		if g.linear_velocity.y > 3.0 and alt > 5.0:
+			climbing += 1
+			if f.y < 0.3:
+				top_edge += 1
+	check(frames > 600, "jugó %d cuadros (llegó a %.0fm de altura, %dm de distancia)" % [frames, max_alt, m.distance])
+	check(max_alt > 25.0, "voló alto (%.0fm)" % max_alt)
+	check(bad < frames * 0.01, "el arma en pantalla todo el tiempo (%d de %d cuadros afuera)" % [bad, frames])
+	check(top_edge < climbing * 0.2, "subiendo, el arma no queda pegada arriba: se ve lo que viene (%d de %d cuadros en el 30%% de arriba)" % [top_edge, climbing])
 	await despawn(m)
