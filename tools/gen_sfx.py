@@ -199,12 +199,27 @@ def flap():
     return render(0.1, lambda t: nz() * env(t, 0.01, 0.025))
 
 
+def explosion():
+    nz = Noise(0.08)
+    nz2 = Noise(0.5)
+    ph = sweep_phase(90, 30, 0.9)
+    return [nz() * 2.5 * env(i / SR, 0.002, 0.3) + nz2() * env(i / SR, 0.001, 0.04)
+            + math.sin(p) * env(i / SR, 0.003, 0.25) for i, p in enumerate(ph)]
+
+
+def engine():
+    ph = sweep_phase(70, 85, 0.8)
+    nz = Noise(0.05)
+    return [((1 if math.sin(p) > 0 else -1) * 0.4 + nz() * 0.8) * env(i / SR, 0.15, 0.4) for i, p in enumerate(ph)]
+
+
 SOUNDS = {
     "shot": (shot, 0.95), "empty": (empty, 0.6), "kill": (kill, 0.8), "headshot": (headshot, 0.9),
     "clank": (clank, 0.75), "hurt": (hurt, 0.7), "boing": (boing, 0.8), "chest_hit": (chest_hit, 0.8),
     "chest_open": (chest_open, 0.7), "pickup": (pickup, 0.55), "powerup": (powerup, 0.75),
     "screech": (screech, 0.5), "squeak": (squeak, 0.5), "chomp": (chomp, 0.85), "game_over": (game_over, 0.6),
     "land": (land, 0.6), "slowmo": (slowmo, 0.6), "flap": (flap, 0.4),
+    "explosion": (explosion, 0.95), "engine": (engine, 0.5),
 }
 
 if __name__ == "__main__":

@@ -35,6 +35,9 @@ func _run() -> void:
 	await test_sword()
 	await test_spring()
 	await test_sky_spawner()
+	await test_altitude_zones()
+	await test_plane()
+	await test_rocket()
 	await test_bat()
 	await test_hawk()
 	await test_chest()
@@ -533,7 +536,7 @@ func test_sky_spawner() -> void:
 		m.gun.linear_velocity = Vector3.ZERO
 		await process_frame
 	for n in m.entities:
-		if is_instance_valid(n) and n is Flyer:
+		if is_instance_valid(n) and (n is Flyer or n is Airplane or n is Rocket):
 			ys.append(n.global_position.y)
 	check(ys.size() >= 4, "aparecen bichos mientras avanzás (%d en 100 m)" % ys.size())
 	check(ys.all(func(y): return y > 25.0), "a tu altura, no en el piso (%s)" % str(ys.map(func(y): return snappedf(y, 0.1))))
@@ -822,4 +825,88 @@ func test_special_levels() -> void:
 	var m := await spawn()
 	check(m.level.special == "" and m.blocks.size() >= 2 and m.blocks[1].special == "air", "PROBAR NIVEL arranca con ese nivel")
 	check(Level.debug_special == "", "y vale para una sola partida")
+	await despawn(m)
+
+
+func test_altitude_zones() -> void:
+	print("zonas por altura")
+	var m := await spawn()
+	var counts := {}
+	for alt in [5.0, 30.0, 60.0]:
+		var c := {}
+		for i in 400:
+			var t: String = m.sky_type(alt)
+			c[t] = c.get(t, 0) + 1
+		counts[alt] = c
+	check(counts[5.0].keys().all(func(k): return k in ["hawk", "bat"]), "abajo: halcones y murciélagos %s" % str(counts[5.0]))
+	check(counts[30.0].has("plane") and counts[30.0].has("hawk") and not counts[30.0].has("rocket"), "alto: aviones con halcones %s" % str(counts[30.0]))
+	check(counts[60.0].has("rocket") and counts[60.0].has("plane") and not counts[60.0].has("hawk") and not counts[60.0].has("bat"), "más alto: cohetes con aviones, sin pájaros %s" % str(counts[60.0]))
+	# cielo de noche
+	await place_gun(m, Vector2(0.0, 2.0), 0.0)
+	await wait_s(0.3)
+	check(m.space_t < 0.05, "abajo el cielo es violeta (%.2f)" % m.space_t)
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 3000:
+		m.gun.global_position = Vector3(0.0, Config.ROCKET_ALT + 10.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await process_frame
+	check(m.space_t > 0.9, "arriba de todo: negro con estrellas (%.2f)" % m.space_t)
+	check(m.camera.get_node("Stars").visible, "se ven las estrellas")
+	await despawn(m)
+
+
+func test_plane() -> void:
+	print("avión")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var pl: Airplane = put(m, "plane", 12.0, 3.0)
+	m.ammo = 10
+	m._hurt_cd = 99.0
+	for i in Config.PLANE_AMMO:
+		await fire_at(m, Vector2(0.0, 3.0), pl.global_position)
+	check(not pl.alive, "lo derribás con %d tiros" % Config.PLANE_AMMO)
+	check(m.ammo == 10 - Config.PLANE_AMMO + Config.PLANE_REWARD, "te da %d balas (%d)" % [Config.PLANE_REWARD, m.ammo])
+	check("explosion" in m.sfx.played, "explota")
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	pl = put(m, "plane", 6.0, 3.0)
+	m.ammo = 10
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var t0 := Time.get_ticks_msec()
+	while m.ammo == 10 and Time.get_ticks_msec() - t0 < 2500:
+		m.gun.global_position = Vector3(0.0, 3.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.ammo == 10 - Config.PLANE_DAMAGE, "si te choca: -%d balas (%d)" % [Config.PLANE_DAMAGE, m.ammo])
+	await despawn(m)
+
+
+func test_rocket() -> void:
+	print("cohete")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var r: Rocket = put(m, "rocket", 14.0, 8.0)
+	m.ammo = 10
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var seen: Vector3 = m.gun.global_position
+	var t0 := Time.get_ticks_msec()
+	while m.ammo == 10 and Time.get_ticks_msec() - t0 < 3000:
+		m.gun.global_position = seen
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.ammo == 10 - Config.ROCKET_DAMAGE, "va hacia vos y explota: -%d balas (%d)" % [Config.ROCKET_DAMAGE, m.ammo])
+	check(not is_instance_valid(r) or not r.alive, "el cohete explotó")
+	check("explosion" in m.sfx.played, "suena la explosión")
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	r = put(m, "rocket", 30.0, 3.0) # lejos: todavía no te vio
+	await fire_at(m, Vector2(0.0, 3.0), r.global_position)
+	check(not is_instance_valid(r) or not r.alive, "un tiro lo explota")
+	check(m.ammo == Config.START_AMMO - 1 + Config.ROCKET_REWARD, "+%d" % Config.ROCKET_REWARD)
 	await despawn(m)

@@ -51,6 +51,10 @@ var _rocks: Array[MeshInstance3D] = []
 var _flash_light: OmniLight3D
 var _hurt_cd := 0.0
 var _laser: MeshInstance3D
+var _sky_mat: ProceduralSkyMaterial
+var _sky_day := {}
+var _stars_mat: StandardMaterial3D
+var space_t := 0.0 # 0 = cielo violeta, 1 = espacio (negro con estrellas)
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
 var _sky_next := 12.0
 var _sky_last := Vector3.ZERO
@@ -104,7 +108,9 @@ func _ready() -> void:
 		if state == State.PLAYING:
 			_activate_power(power, gun.global_position))
 
+	_build_stars()
 	_update_camera(1.0)
+	_prewarm()
 
 
 func _apply_tuning() -> void:
@@ -221,6 +227,13 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 			_fx_puff(point, Color("ffe7a0"), 10, 0.35, false)
 			hud.popup_world(camera, above, "¡CLANK!", "clank")
 			sfx.play("clank")
+		"plane_hit":
+			_fx_puff(point, Color("d9dde6"), 8, 0.4, false)
+			sfx.play("clank", -4.0, 0.8)
+		"plane_kill", "rocket_kill":
+			kills += 1
+			explosion_fx(point)
+			hud.popup_world(camera, above, "+%d" % reward, "")
 		"flyer_kill", "mimic_kill":
 			kills += 1
 			_fx_puff(point, Color("6b4a3a"), 12, 0.8, true)
@@ -330,6 +343,14 @@ func spawn_pickup(kind: String, pos: Vector3, vel: Vector3, floating := false) -
 	return p
 
 
+func explosion_fx(at: Vector3) -> void:
+	_fx_puff(at, Color("ff8a1a"), 26, 0.9, false)
+	_fx_puff(at, Color("4a4550"), 14, 1.2, false)
+	_flash_light.global_position = at + Vector3(0, 0, 1.0)
+	_flash_light.light_energy = 10.0
+	sfx.play("explosion")
+
+
 func spawn_mimic(pos: Vector3) -> void:
 	var m := Mimic.new()
 	m.game = self
@@ -395,6 +416,7 @@ func _process(delta: float) -> void:
 
 	_flash_light.light_energy *= exp(-delta * 40.0)
 	_update_camera(real_dt)
+	_update_space(p, real_dt)
 	for r in _rocks:
 		r.rotate_y(r.get_meta("spin") * real_dt)
 		if r.position.x < _cam_target.x - 45.0:
@@ -447,7 +469,9 @@ func _update_camera(real_dt: float) -> void:
 
 	var p := gun.global_position
 	var ground := Level.top_at(blocks, p.x)
-	var ty := maxf(p.y * 0.6 + ground * 0.4, ground) + 1.6
+	# Cerca del piso, la cámara se inclina hacia él (para verlo); a gran altura sigue al arma.
+	var lean := clampf((p.y - ground) * 0.4, 0.0, 2.5)
+	var ty := maxf(p.y - lean, ground) + 1.6
 	var goal := Vector3(p.x + LOOK_AHEAD, ty, 0.0)
 	var want_width := VISIBLE_WIDTH
 
@@ -492,6 +516,9 @@ func _build_environment() -> void:
 	sky_mat.ground_bottom_color = Color("e2c4ff")
 	sky_mat.sky_curve = 0.25
 	sky_mat.sun_angle_max = 0.0
+	_sky_mat = sky_mat
+	_sky_day = {"top": sky_mat.sky_top_color, "hor": sky_mat.sky_horizon_color,
+		"ghor": sky_mat.ground_horizon_color, "gbot": sky_mat.ground_bottom_color}
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
 	var env := Environment.new()
@@ -584,9 +611,14 @@ func _sky_spawner(p: Vector3) -> void:
 	_spawn_item({"type": sky_type(p.y - Level.top_at(blocks, p.x)), "x": pos.x, "y": pos.y})
 
 
-## Qué bicho toca según la altura sobre el piso.
-func sky_type(_altitude: float) -> String:
-	return "hawk" if randf() < 0.4 else "bat"
+## Qué aparece según la altura sobre el piso.
+func sky_type(altitude: float) -> String:
+	var r := randf()
+	if altitude >= Config.ROCKET_ALT: # cohetes con aviones, sin pájaros
+		return "rocket" if r < 0.6 else "plane"
+	if altitude >= Config.PLANE_ALT: # aviones junto con los halcones
+		return "plane" if r < 0.45 else ("hawk" if r < 0.85 else "bat")
+	return "hawk" if r < 0.4 else "bat"
 
 
 func _spawn_item(it: Dictionary) -> void:
@@ -615,6 +647,10 @@ func _spawn_item(it: Dictionary) -> void:
 			var f := Flyer.new()
 			f.kind = it.type
 			n = f
+		"plane":
+			n = Airplane.new()
+		"rocket":
+			n = Rocket.new()
 		_:
 			return
 	n.set("game", self)
@@ -673,6 +709,70 @@ func _build_rocks() -> void:
 		mi.set_meta("spin", randf_range(-0.15, 0.15))
 		add_child(mi)
 		_rocks.append(mi)
+
+
+## Crea una vez cada cosa del juego escondida adentro del piso (en cámara pero
+## tapada): así el renderer compila sus shaders al arrancar y no hay un tirón
+## la primera vez que aparece un avión, un cofre, etc.
+func _prewarm() -> void:
+	var holder := Node3D.new()
+	holder.process_mode = Node.PROCESS_MODE_DISABLED # sin física ni lógica
+	add_child(holder)
+	holder.position = Vector3(Level.START.x + 3.0, -4.0, 0.0)
+	for k in ["plain", "sword", "shield", "helmet"]:
+		var e := Enemy.new()
+		e.kind = k
+		holder.add_child(e)
+	for k in ["hawk", "bat"]:
+		var f := Flyer.new()
+		f.kind = k
+		holder.add_child(f)
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new()]:
+		holder.add_child(n)
+	for i in 3:
+		await get_tree().process_frame
+	holder.queue_free()
+
+
+# --- cielo de noche (arriba de todo) ---
+
+func _build_stars() -> void:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	var q := QuadMesh.new()
+	q.size = Vector2(0.35, 0.35)
+	_stars_mat = StandardMaterial3D.new()
+	_stars_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_stars_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_stars_mat.albedo_color = Color(1, 1, 1, 0)
+	q.material = _stars_mat
+	mm.mesh = q
+	mm.instance_count = 260
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 42
+	for i in mm.instance_count:
+		var s := rng.randf_range(0.4, 1.3)
+		var pos := Vector3(rng.randf_range(-90.0, 90.0), rng.randf_range(-110.0, 110.0), -150.0)
+		mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * s), pos))
+	var stars := MultiMeshInstance3D.new()
+	stars.multimesh = mm
+	stars.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	stars.visible = false
+	stars.name = "Stars"
+	camera.add_child(stars) # las estrellas van con la cámara (están "en el infinito")
+
+
+func _update_space(p: Vector3, real_dt: float) -> void:
+	var alt := p.y - Level.top_at(blocks, p.x)
+	var goal := clampf((alt - (Config.ROCKET_ALT - Config.SPACE_FADE)) / Config.SPACE_FADE, 0.0, 1.0)
+	space_t = lerpf(space_t, goal, 1.0 - exp(-real_dt * 2.0))
+	var night := Color("05030c")
+	_sky_mat.sky_top_color = _sky_day.top.lerp(night, space_t)
+	_sky_mat.sky_horizon_color = _sky_day.hor.lerp(Color("120a24"), space_t)
+	_sky_mat.ground_horizon_color = _sky_day.ghor.lerp(Color("120a24"), space_t)
+	_sky_mat.ground_bottom_color = _sky_day.gbot.lerp(night, space_t)
+	_stars_mat.albedo_color.a = smoothstep(0.3, 1.0, space_t)
+	camera.get_node("Stars").visible = space_t > 0.05
 
 
 # --- mirilla láser (poder) ---

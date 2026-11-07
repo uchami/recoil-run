@@ -3,7 +3,7 @@ extends Node
 ## Efectos de sonido: pool de players. Los .wav se generan con tools/gen_sfx.py.
 
 const NAMES := ["shot", "empty", "kill", "headshot", "clank", "hurt", "boing", "chest_hit", "chest_open",
-	"pickup", "powerup", "screech", "squeak", "chomp", "game_over", "land", "slowmo", "flap"]
+	"pickup", "powerup", "screech", "squeak", "chomp", "game_over", "land", "slowmo", "flap", "explosion", "engine"]
 const POOL := 14
 
 var _streams := {}

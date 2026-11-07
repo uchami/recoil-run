@@ -78,3 +78,20 @@ const POWER_LASER_TIME := 60.0
 const POWER_LASER_RANGE := 20.0
 const POWER_AMMO := 15
 const POWER_UNTOUCHABLE_TIME := 15.0
+
+# Altura sobre el piso: qué aparece en el cielo
+const PLANE_ALT := 20.0 # desde acá: aviones junto con los halcones
+const ROCKET_ALT := 40.0 # desde acá: cohetes y aviones, sin pájaros, y cielo de noche
+const SPACE_FADE := 12.0 # metros en los que el cielo pasa de violeta a negro
+
+# Avión: cruza volando hacia vos. Tiene balas como todos.
+const PLANE_AMMO := 3
+const PLANE_SPEED := 7.0
+const PLANE_DAMAGE := 2
+const PLANE_REWARD := 3
+
+# Cohete: toma tu posición al salir y va rápido en línea recta. Un tiro lo explota.
+const ROCKET_SPEED := 9.0
+const ROCKET_DAMAGE := 2
+const ROCKET_REWARD := 1
+const ROCKET_SIGHT := 22.0
