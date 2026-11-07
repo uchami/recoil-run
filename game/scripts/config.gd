@@ -83,6 +83,7 @@ const POWER_UNTOUCHABLE_TIME := 15.0
 const PLANE_ALT := 20.0 # desde acá: aviones junto con los halcones
 const ROCKET_ALT := 40.0 # desde acá: cohetes y aviones, sin pájaros, y cielo de noche
 const SPACE_FADE := 12.0 # metros en los que el cielo pasa de violeta a negro
+const SPACE_GRAVITY := 0.45 # en el espacio la gravedad es el 45 % (baja junto con el cielo)
 
 # Avión: cruza volando hacia vos. Tiene balas como todos.
 const PLANE_AMMO := 3

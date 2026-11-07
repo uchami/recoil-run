@@ -59,6 +59,7 @@ var space_t := 0.0 # 0 = cielo violeta, 1 = espacio (negro con estrellas)
 var special_ends: Array = [] # [{x, kind}] fin de cada nivel especial ya generado
 var specials_done := 0
 var fan_ride := 0.0 # > 0 mientras un ventilador te sube (lo renueva en cada paso)
+var sky_spawned := 0
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
 var _sky_next := 12.0
 var _sky_last := Vector3.ZERO
@@ -643,6 +644,7 @@ func _sky_spawner(p: Vector3) -> void:
 		pos = Vector3(p.x + randf_range(Config.SKY_SPAWN_AHEAD.x, Config.SKY_SPAWN_AHEAD.y), p.y + randf_range(-2.0, 5.0), 0.0)
 	pos.y = maxf(pos.y, Level.top_at(blocks, pos.x) + 2.5) # nunca metido en el piso
 	_spawn_item({"type": sky_type(p.y - Level.top_at(blocks, p.x)), "x": pos.x, "y": pos.y})
+	sky_spawned += 1
 
 
 ## Qué aparece según la altura sobre el piso.
@@ -808,6 +810,7 @@ func _update_space(p: Vector3, real_dt: float) -> void:
 	_sky_mat.ground_horizon_color = _sky_day.ghor.lerp(Color("120a24"), space_t)
 	_sky_mat.ground_bottom_color = _sky_day.gbot.lerp(night, space_t)
 	_stars_mat.albedo_color.a = smoothstep(0.3, 1.0, space_t)
+	gun.gravity_scale = lerpf(1.0, Config.SPACE_GRAVITY, space_t) * gun.weight
 	camera.get_node("Stars").visible = space_t > 0.05
 
 

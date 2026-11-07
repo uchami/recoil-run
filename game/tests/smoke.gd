@@ -551,7 +551,7 @@ func test_sky_spawner() -> void:
 	for n in m.entities:
 		if is_instance_valid(n) and (n is Flyer or n is Airplane or n is Rocket):
 			ys.append(n.global_position.y)
-	check(ys.size() >= 4, "aparecen bichos mientras avanzás (%d en 100 m)" % ys.size())
+	check(m.sky_spawned >= 5, "aparecen bichos mientras avanzás (%d en 100 m)" % m.sky_spawned)
 	check(ys.all(func(y): return y > 25.0), "a tu altura, no en el piso (%s)" % str(ys.map(func(y): return snappedf(y, 0.1))))
 	await despawn(m)
 
@@ -858,6 +858,7 @@ func test_altitude_zones() -> void:
 	await place_gun(m, Vector2(0.0, 2.0), 0.0)
 	await wait_s(0.3)
 	check(m.space_t < 0.05, "abajo el cielo es violeta (%.2f)" % m.space_t)
+	check(is_equal_approx(m.gun.gravity_scale, 1.0), "abajo, gravedad normal")
 	var t0 := Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t0 < 3000:
 		m.gun.global_position = Vector3(0.0, Config.ROCKET_ALT + 10.0, 0.0)
@@ -865,6 +866,7 @@ func test_altitude_zones() -> void:
 		await process_frame
 	check(m.space_t > 0.9, "arriba de todo: negro con estrellas (%.2f)" % m.space_t)
 	check(m.camera.get_node("Stars").visible, "se ven las estrellas")
+	check(absf(m.gun.gravity_scale - Config.SPACE_GRAVITY) < 0.05, "en el espacio hay menos gravedad (x%.2f)" % m.gun.gravity_scale)
 	await despawn(m)
 
 

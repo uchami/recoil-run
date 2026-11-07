@@ -21,6 +21,7 @@ var _knock_vel := Vector3.ZERO
 var _knock_spin := 0.0
 var _prev_speed := 0.0
 var _glow: StandardMaterial3D
+var weight := 1.0 # multiplica la gravedad (candado: el arma pesa más)
 var _updraft := -1.0 # ventilador: velocidad de subida pedida en este paso (-1 = nada)
 var _updraft_x := 0.0
 var _shot_dir := Vector2.RIGHT
