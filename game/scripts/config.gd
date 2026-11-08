@@ -2,8 +2,8 @@ class_name Config
 ## Números fijos del juego. Los del vuelo (gravedad, retroceso, giro, inercia)
 ## están en scripts/tuning.gd porque se ajustan en vivo desde el panel AJUSTES.
 
-const START_AMMO := 5
-const HEADSHOT_REWARD := 3 # balas por headshot (en lugar del +2 del kill normal)
+const START_AMMO := 20
+const HEADSHOT_REWARD := 4 # balas por headshot (en lugar del +2 del kill normal)
 const KILL_REWARD := 2 # balas por kill al cuerpo
 
 const ANGULAR_DAMP := 0.15
@@ -35,7 +35,7 @@ const L_PICKUP := 32 # balas sueltas y poderes (las balas los atraviesan)
 
 # Daño (balas = vida)
 const HURT_COOLDOWN := 0.6 # invulnerable un ratito después de un golpe
-const FLYER_REWARD := 1 # balas por matar un murciélago o un halcón
+const FLYER_REWARD := 3 # balas por matar un murciélago o un halcón
 const MIMIC_REWARD := 5
 
 # Espadachín
@@ -63,7 +63,7 @@ const HAWK_SPIN := 14.0 # rad/s que te hace girar al golpearte
 
 # Cofres (no tienen vida: tienen balas, como vos)
 const CHEST_AMMO := 3
-const CHEST_REWARD := 5 # cofre bueno: 50 % te da 5 balas...
+const CHEST_REWARD := 15 # cofre bueno: 50 % te da 15 balas...
 const CHEST_POWER_CHANCE := 0.5 # ...y 50 % un poder
 const TRAP_CHANCE := 1.0 / 3.0
 const SAFE_CHESTS := 4 # los primeros 4 cofres que matás en tu vida nunca son trampa

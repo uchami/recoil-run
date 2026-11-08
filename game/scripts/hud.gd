@@ -113,7 +113,7 @@ void fragment() {
 	var tw := create_tween().set_loops()
 	tw.tween_property(hint, "modulate:a", 0.4, 0.6)
 	tw.tween_property(hint, "modulate:a", 1.0, 0.6)
-	var sub := _label("Disparás para adelante → vas un poco para atrás\nDisparás para atrás → vas para adelante\nHeadshot +3 · Kill +2", 30, INK, 0)
+	var sub := _label("Disparás para adelante → vas un poco para atrás\nDisparás para atrás → vas para adelante\nHeadshot +4 · Kill +2", 30, INK, 0)
 	_start.add_child(sub)
 
 	# Game over

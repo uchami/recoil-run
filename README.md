@@ -32,7 +32,7 @@ adb install -r ../build/recoil-run.apk
 
 ## Reglas y "física trucha" a propósito
 
-- Arrancás con 5 balas. Headshot **+3** (con slow-mo ~1 s), kill al cuerpo **+2**.
+- Arrancás con 20 balas. Headshot **+4** (con slow-mo ~1 s), kill al cuerpo **+2**.
 - Disparar hacia adelante empuja hacia atrás solo el 20 % de lo que empuja hacia adelante un disparo hacia atrás.
 - Los personajes son cuerpos sólidos: el arma choca y no los atraviesa. Muertos, son ragdolls.
 - El arma nunca queda plana: tiene una mirilla delantera con colisión, así que dada vuelta se apoya inclinada (física real).
@@ -51,7 +51,7 @@ adb install -r ../build/recoil-run.apk
 
 | Qué | Cómo funciona |
 |---|---|
-| Hombrecito | Sin nada. Headshot +3, al cuerpo +2 |
+| Hombrecito | Sin nada. Headshot +4, al cuerpo +2 |
 | Con espada | Si te acercás, te pega: -1 bala y te empuja |
 | Con escudo | El escudo (del lado de donde venís) rebota las balas: hay que darle a la cabeza |
 | Con casco | El casco rebota las balas: hay que darle al torso |
@@ -62,11 +62,11 @@ adb install -r ../build/recoil-run.apk
 | Candado | Flota. Tiene 4 balas (+4). Si te toca se te pega: el arma pesa el doble 5 s |
 | Ovni | Avisa con una línea finita y a los 0.7 s dispara un láser verde: -5 balas. Se esquiva moviéndote. 4 balas, +5 |
 | Astronauta | Flota dando vueltas; si te choca -1 y te empuja. 2 balas, +3 |
-| Murciélago | Revolotea. Si te choca se muere y te saca 1 bala. De un tiro: +1 |
-| Halcón | Cuando te ve, toma tu posición y va lento en línea recta hacia ahí. Si te toca: -1 bala y te hace girar. De un tiro: +1 |
+| Murciélago | Revolotea. Si te choca se muere y te saca 1 bala. De un tiro: +3 |
+| Halcón | Cuando te ve, toma tu posición y va lento en línea recta hacia ahí. Si te toca: -1 bala y te hace girar. De un tiro: +3 |
 | Avión | Cruza volando hacia vos. Tiene 3 balas. Si te choca: -2. Derribado: +3 |
 | Cohete | Te apunta y va derecho, rápido. Si te toca explota: -2. Un tiro lo explota: +1 |
-| Cofre (gigante) | No tiene vida: tiene 3 balas, como vos. Al matarlo: 50 % +5 balas, 50 % un poder |
+| Cofre (gigante) | No tiene vida: tiene 3 balas, como vos. Al matarlo: 50 % +15 balas, 50 % un poder |
 | Cofre trampa (1 de cada 3) | Al matarlo abre la boca con dientes, vuelve con 2 balas y te persigue: si te toca, -2. Al matarlo: +5. Los primeros 4 cofres que matás en tu vida nunca son trampa |
 
 Los bichos voladores aparecen alrededor de tu altura (no solo cerca del piso), según cuánto subiste sobre el piso:
