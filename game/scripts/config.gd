@@ -113,7 +113,10 @@ const FAN_MAX_SPEED := 14.0
 const CHASE_REWARD := 10 # escapaste
 const BLACKOUT_REWARD := 10 # cruzaste sin que te toquen
 const FIREFLY_REWARD := 2 # apagón: cada lucecita que le pegás
+const ABDUCT_ALT := 12.0 # si llegás a un nivel especial más alto que esto, te abduce una nave y te baja al piso
+const ABDUCT_LEAD := 6.0 # (se fija unos metros antes de que empiece)
 const BOSS_REWARD := 15 # lo mataste
+const BOSS_LASER_BONUS := 10 # si ya tenías la mirilla del jefe, en vez de eso te da estas balas
 const GALLERY_MEDALS := [[0.85, "ORO", 20], [0.6, "PLATA", 10], [0.35, "BRONCE", 5]] # [fracción de los puntos, medalla, balas]
 
 # Persecución: cofre trampa gigante que te persigue

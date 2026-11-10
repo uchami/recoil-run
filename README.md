@@ -98,7 +98,8 @@ misma partida encarece las siguientes un 25 %. Las que tienen duración duran 10
   arriba del piso de enfrente). Se usa una vez; no se puede tener dos.
 - **+1 bala al inicio** (10 cada una, para siempre): hasta arrancar con 30.
 
-**Niveles especiales**: el primero a los 250 m; después, uno cada 500 m (sin repetir hasta usar los cuatro).
+**Niveles especiales**: el primero a los 250 m; después, uno cada 500 m (sin repetir hasta usar los cuatro). Son en el piso: si
+llegás volando a más de 12 m (o desde el espacio), una nave te **abduce** con su rayo y te deja al principio del nivel, a la altura del piso.
 Al entrar: franja con el nombre y el objetivo, el cielo cambia de color y aparece un contador debajo de la distancia.
 Al salir: premio según cómo te fue (si fallaste, nada).
 
@@ -107,7 +108,7 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 | Persecución (110 m) | Un cofre trampa gigante (más alto que la pantalla) te persigue, cada vez más rápido (3.2 → 5.2 m/s), y nunca queda a más de 10 m: si te frenás, te alcanza y **te come** (perdés, sin seguro). La cámara mira para atrás para que lo veas | Escapar: +10 |
 | Galería de tiro (110 m) | Dianas que asoman 2.6 s cuando te acercás (desde el piso, colgando o en globito). Al centro 2 puntos, al resto 1; cada acierto te devuelve la bala | Oro (85 % de los puntos) +20, plata (60 %) +10, bronce (35 %) +5 |
 | Apagón (120 m) | Todo a oscuras: se ven los ojos de los enemigos, el arma (luz tenue + linterna hacia donde apunta) y lo que ilumina cada fogonazo. Hay lucecitas flotando que titilan: cada una que le pegás da +2 balas. Sin cascos | Cruzar sin que te toquen: +10 |
-| Jefe (50 m) | Robot gigante con un campo de fuerza detrás (no se pasa, ni por arriba). Tiene 3 puntos débiles rojos que laten (ojo, pecho, antena): un tiro a cualquiera lo rompe; en el blindaje rebota. Te tira cohetes. La cámara se aleja para que entre entero | Matarlo: +15 |
+| Jefe (50 m) | Robot gigante con un campo de fuerza detrás (no se pasa, ni por arriba). Tiene 3 puntos débiles rojos que laten (ojo, pecho, antena): un tiro a cualquiera lo rompe; en el blindaje rebota. Te tira cohetes. La cámara se aleja para que entre entero | Matarlo: +15 y **mirilla láser larga hasta el final de la partida** (si ya la tenías, +10 balas más) |
 
 En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque) y
 **PROBAR PODER** (te da el poder en el momento).

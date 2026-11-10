@@ -90,6 +90,9 @@ var bought_this_run := 0 # cada compra encarece las siguientes (en esta partida)
 var _bought_visit: Array = [] # lo que compraste en esta visita al mercado
 var revived := false
 var eaten := false # el cofre trampa te comió: se ve cómo cierra la boca y perdés
+var abducting := false # una nave te está llevando al piso (nivel especial desde muy alto)
+var trophy_laser := false # mataste un jefe: mirilla láser larga hasta el final de la partida
+var _abductor: Abductor
 var _float_pos := Vector3(Level.START.x, Level.START.y, 0.0) # dónde flota el arma antes del primer tiro
 
 
@@ -212,7 +215,7 @@ func restart() -> void:
 # --- disparo ---
 
 func shoot() -> void:
-	if state == State.OVER or eaten:
+	if state == State.OVER or eaten or abducting:
 		return
 	var first := state == State.READY
 	if first:
@@ -484,6 +487,12 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 			explosion_fx(point)
 			hud.special_banner("¡JEFE DERROTADO!", reward)
 			sfx.play("fanfare")
+			if trophy_laser: # ya la tenías: más balas
+				ammo += Config.BOSS_LASER_BONUS
+			trophy_laser = true
+			sfx.play("powerup")
+			hud.popup_world(camera, gun.global_position + Vector3(0, 1.4, 0), "¡MIRILLA LÁSER HASTA EL FINAL!", "headshot")
+			_refresh_perks()
 		"firefly":
 			if special_zone.get("kind", "") == "blackout":
 				special_zone.lights += 1
@@ -513,7 +522,7 @@ func power_on(power: String) -> bool:
 ## Un golpe: te saca balas (las balas son la vida). Sin balas, un golpe te mata.
 ## knock: velocidad nueva del arma (cero = no empuja); spin: giro que se suma.
 func hurt(amount: int, from: Vector3, knock := Vector2.ZERO, spin := 0.0, _cause := "") -> void:
-	if eaten or state != State.PLAYING or power_on("untouchable") or _hurt_cd > 0.0:
+	if eaten or abducting or state != State.PLAYING or power_on("untouchable") or _hurt_cd > 0.0:
 		return
 	_hurt_cd = Config.HURT_COOLDOWN
 	if not special_zone.is_empty():
@@ -635,7 +644,15 @@ const SPECIAL_INFO := {
 
 func _update_specials(p: Vector3) -> void:
 	if special_zone.is_empty():
-		if not special_zones.is_empty() and state == State.PLAYING and p.x >= special_zones[0].x0:
+		if special_zones.is_empty() or state != State.PLAYING or abducting:
+			return
+		var z: Dictionary = special_zones[0]
+		# llegás volando muy alto (o en el espacio): los niveles especiales son en
+		# el piso, así que una nave te abduce y te deja ahí
+		if p.x >= z.x0 - Config.ABDUCT_LEAD and p.y - Level.top_at(blocks, z.x0 + 1.0) > Config.ABDUCT_ALT and not _booster_holding():
+			_abduct(z)
+			return
+		if p.x >= z.x0:
 			_special_start(special_zones.pop_front())
 		return
 	if state != State.PLAYING and state != State.READY:
@@ -713,6 +730,70 @@ func _special_result(title: String, reward: int) -> void:
 	else:
 		sfx.play("empty")
 	hud.special_banner(title, reward)
+
+
+## Abducción: la nave baja, te chupa con el rayo, te lleva hasta el principio
+## del nivel especial y te deja a la altura del piso. Mientras tanto no podés
+## disparar ni te pueden lastimar.
+func _abduct(z: Dictionary) -> void:
+	abducting = true
+	_queued_shots = 0
+	gun.freeze = true
+	gun.linear_velocity = Vector3.ZERO
+	gun.angular_velocity = Vector3.ZERO
+	var p := gun.global_position
+	var drop := Vector3(z.x0 + 1.0, Level.top_at(blocks, z.x0 + 1.0) + 1.4, 0.0)
+	var hover := 3.2
+	var above := p + Vector3(0, hover, 0)
+	var top := drop + Vector3(0, hover + 2.0, 0)
+	_abductor = Abductor.new()
+	add_child(_abductor)
+	_abductor.global_position = p + Vector3(-9.0, 6.0, 0)
+	hud.popup_world(camera, p + Vector3(0, 1.2, 0), "¡ABDUCIDO!", "headshot")
+	sfx.play("engine", -4.0)
+	var tw := create_tween()
+	tw.tween_property(_abductor, "global_position", above, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_callback(func():
+		_abductor.set_beam(hover)
+		sfx.play("laser", -6.0, 0.5))
+	tw.tween_property(gun, "global_position", above - Vector3(0, 0.3, 0), 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		gun.visible = false
+		_abductor.set_beam(0.0))
+	tw.tween_method(_abduct_carry.bind(above, top), 0.0, 1.0, clampf(above.distance_to(top) / 45.0, 0.9, 2.0)).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_callback(func():
+		gun.visible = true
+		gun.global_rotation = Vector3.ZERO
+		_abductor.set_beam(top.y - drop.y + 0.6)
+		sfx.play("laser", -6.0, 0.5))
+	tw.tween_property(gun, "global_position", drop, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_callback(_abduct_release)
+
+
+func _abduct_carry(k: float, from: Vector3, to: Vector3) -> void:
+	var at := from.lerp(to, k)
+	_abductor.global_position = at
+	gun.global_position = at - Vector3(0, 0.3, 0)
+
+
+func _abduct_release() -> void:
+	abducting = false
+	_rest_timer = 0.0
+	_empty_timer = 0.0
+	gun.linear_velocity = Vector3.ZERO
+	gun.angular_velocity = Vector3.ZERO
+	gun.freeze = false
+	if is_instance_valid(_abductor):
+		var a := _abductor
+		a.set_beam(0.0)
+		var tw := a.create_tween()
+		tw.tween_property(a, "global_position", a.global_position + Vector3(6.0, 30.0, 0), 1.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tw.tween_callback(a.queue_free)
+	_abductor = null
+
+
+func _booster_holding() -> bool:
+	return entities.any(func(n): return is_instance_valid(n) and n is Booster and n.launched and not n._released)
 
 
 ## El jefe tira un cohete desde el brazo.
@@ -838,6 +919,8 @@ func _refresh_perks() -> void:
 			parts.append("%s %d" % [names[k], Records.stat(PERK_STATS[k])])
 	if Records.stat("insurance") > 0:
 		parts.append("SEGURO")
+	if trophy_laser:
+		parts.append("LÁSER DEL JEFE")
 	hud.set_perks(" · ".join(parts))
 
 
@@ -951,7 +1034,7 @@ func _process(delta: float) -> void:
 
 
 func _check_game_over(real_dt: float, p: Vector3) -> void:
-	if eaten:
+	if eaten or abducting:
 		return
 	if p.y < Level.low_top_around(blocks, p.x) - FALL_MARGIN: # se cayó en un hueco
 		_game_over("¡TE CAÍSTE!")
@@ -1377,6 +1460,7 @@ func _prewarm() -> void:
 	holder.add_child(Boss.new())
 	holder.add_child(Target.new())
 	holder.add_child(Firefly.new())
+	holder.add_child(Abductor.new())
 	for k in ["hawk", "bat"]:
 		var f := Flyer.new()
 		f.kind = k
@@ -1458,7 +1542,7 @@ func _build_laser() -> void:
 
 
 func _update_laser() -> void:
-	var reach := Config.POWER_LASER_RANGE if power_on("laser") else (Config.SIGHT_RANGE if perks.has("sight") else 0.0)
+	var reach := Config.POWER_LASER_RANGE if power_on("laser") or trophy_laser else (Config.SIGHT_RANGE if perks.has("sight") else 0.0)
 	_laser.visible = reach > 0.0 and state != State.OVER and state != State.MARKET
 	if not _laser.visible:
 		return

@@ -47,6 +47,7 @@ func _run() -> void:
 	await test_special_gallery()
 	await test_special_blackout()
 	await test_special_ends_while_inside()
+	await test_abduction()
 	await test_special_boss()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
@@ -1799,6 +1800,41 @@ func enter_special(kind: String) -> Node:
 	return m
 
 
+## Llegás a un nivel especial volando muy alto: una nave te lleva al piso.
+func test_abduction() -> void:
+	print("especial: abducción si llegás desde muy alto")
+	Level.debug_special = "gallery"
+	var m := await spawn()
+	clear_world(m)
+	var z: Dictionary = m.special_zones[0]
+	var ground: float = Level.top_at(m.blocks, z.x0 + 1.0)
+	var x: float = z.x0 - 15.0
+	await place_gun(m, Vector2(x, ground + 40.0), 0.0)
+	var t0 := Time.get_ticks_msec()
+	while not m.abducting and Time.get_ticks_msec() - t0 < 4000:
+		x += 0.2
+		m.gun.global_position = Vector3(x, ground + 40.0, 0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.abducting and m.special_zone.is_empty(), "antes de empezar, te abduce (x=%.1f, empieza en %.1f)" % [x, z.x0])
+	var ammo0: int = m.ammo
+	m.shoot()
+	m._hurt_cd = 0.0
+	m.hurt(3, m.gun.global_position)
+	check(m.ammo == ammo0, "mientras te lleva no disparás ni te lastiman")
+	t0 = Time.get_ticks_msec()
+	while m.abducting and Time.get_ticks_msec() - t0 < 8000:
+		await physics_frame
+	var gp: Vector3 = m.gun.global_position
+	check(not m.abducting and absf(gp.x - (z.x0 + 1.0)) < 0.5 and gp.y - ground < 2.5, "te deja en el piso, al principio del nivel (%.1f, %.1f sobre el piso)" % [gp.x, gp.y - ground])
+	for i in 4:
+		await physics_frame
+	check(m.special_zone.get("kind", "") == "gallery", "y arranca el nivel especial")
+	check(m.state == m.State.PLAYING and not m.gun.freeze and m.gun.visible, "seguís jugando")
+	await despawn(m)
+	Level.debug_special = ""
+
+
 ## Entrás antes de que se genere el final (el mundo se genera de a poco): igual termina.
 func test_special_ends_while_inside() -> void:
 	print("especial: termina aunque entres antes de que se genere el final")
@@ -2000,6 +2036,7 @@ func test_special_boss() -> void:
 		check(boss.broken.has(k), "%s roto" % k)
 	check(not boss.alive and m.special_zone.broken == 3, "los 3 rotos: lo mataste")
 	check(m.ammo == before - 3 + Config.BOSS_REWARD, "+%d balas (%d)" % [Config.BOSS_REWARD, m.ammo])
+	check(m.trophy_laser and m.hud._perks.text.contains("LÁSER"), "y mirilla láser hasta el final de la partida")
 	await physics_frame
 	await physics_frame
 	hit = m._raycast(Vector3(bp.x + 1.0, bp.y + 30.0, 0), Vector3(bp.x + 5.0, bp.y + 30.0, 0))
