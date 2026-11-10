@@ -1,13 +1,14 @@
 class_name Astronaut
 extends Area3D
 ## Astronauta: flota dando vueltas despacio. Si te choca: -1 bala y te empuja.
-## Tiene 2 balas (2 tiros, +3).
+## Muere de un tiro, como los del piso: al casco = headshot (+4 y slow-mo), al cuerpo +2.
 
 var game: Node
-var ammo := Config.ASTRONAUT_AMMO
+const HEAD_Y := 0.72 # centro del casco (en coords del dibujo, que gira)
+const NECK_Y := 0.42 # impacto por encima de esto (en coords del dibujo) = headshot
+
 var alive := true
 var _vis: Node3D
-var _tag: AmmoTag
 var _vel := Vector3.ZERO
 var _spin := 0.0
 var _hit_cd := 0.0
@@ -25,27 +26,31 @@ func _ready() -> void:
 	_vel = Vector3(randf_range(-0.8, -0.3), randf_range(-0.3, 0.3), 0.0)
 	_spin = randf_range(-0.8, 0.8)
 	_build_mesh()
-	_tag = AmmoTag.new()
-	_tag.position = Vector3(0, 1.4, 0)
-	add_child(_tag)
-	_tag.set_count(ammo)
 	body_entered.connect(_on_body)
 
 
-func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
+func shot(hit: Dictionary, dir: Vector2) -> Dictionary:
 	if not alive:
 		return {"result": "none", "reward": 0}
-	ammo -= 1
-	_tag.set_count(ammo)
-	if ammo > 0:
-		return {"result": "chest_hit", "reward": 0}
+	var head := is_head_hit(hit.position)
 	alive = false
-	_tag.visible = false
 	set_deferred("monitoring", false)
 	set_deferred("collision_layer", 0)
 	get_tree().create_timer(3.0).timeout.connect(queue_free)
-	_spin *= 6.0
-	return {"result": "flyer_kill", "reward": Config.ASTRONAUT_REWARD}
+	_spin = 7.0 * (1.0 if randf() < 0.5 else -1.0)
+	_vel += Vector3(dir.x, dir.y, 0.0) * 3.0 # sale despedido para donde iba la bala
+	if head:
+		return {"result": "headshot", "reward": Config.HEADSHOT_REWARD, "space": true}
+	return {"result": "kill", "reward": Config.KILL_REWARD, "space": true}
+
+
+## El astronauta gira: el casco está donde esté el dibujo en este momento.
+func is_head_hit(global_point: Vector3) -> bool:
+	return _vis.to_local(global_point).y >= NECK_Y
+
+
+func head_position() -> Vector3:
+	return _vis.to_global(Vector3(0, HEAD_Y, 0))
 
 
 func _on_body(body: Node) -> void:

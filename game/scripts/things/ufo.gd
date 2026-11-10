@@ -1,14 +1,18 @@
 class_name Ufo
 extends Area3D
-## Ovni: flota y cada tanto te apunta. Primero se ve una línea finita (el aviso)
-## hacia donde estabas; a los 0.7 s dispara un láser verde por esa línea. Si te
-## da: -5 balas. Tiene 4 balas (4 tiros, +5).
+## Ovni: te persigue (si avanzás, te sigue y te busca) y cada tanto te apunta.
+## Primero se ve una línea finita (el aviso) hacia donde estabas; a los 0.7 s
+## dispara un láser verde por esa línea. Si te da: -5 balas.
+## Se mata de un tiro a la cúpula (+5); en el plato las balas rebotan.
+
+const DOME_Y := 0.32
+const DOME_R := 0.5
 
 var game: Node
-var ammo := Config.UFO_AMMO
 var alive := true
+var leaving := false # te perdió: se va para arriba
 var _vis: Node3D
-var _tag: AmmoTag
+var _dome_cs: CollisionShape3D
 var _anchor := Vector3.ZERO
 var _t := randf() * TAU
 var _cd := 1.0
@@ -23,18 +27,20 @@ var fired := 0
 func _ready() -> void:
 	collision_layer = Config.L_FLYER
 	collision_mask = Config.L_GUN
-	var cs := CollisionShape3D.new()
+	var cs := CollisionShape3D.new() # el plato (blindado)
 	var cyl := CylinderShape3D.new()
 	cyl.radius = 1.1
-	cyl.height = 0.7
+	cyl.height = 0.3
 	cs.shape = cyl
 	add_child(cs)
+	_dome_cs = CollisionShape3D.new() # la cúpula: el punto débil
+	var sph := SphereShape3D.new()
+	sph.radius = DOME_R
+	_dome_cs.shape = sph
+	_dome_cs.position.y = DOME_Y
+	add_child(_dome_cs)
 	_anchor = global_position
 	_build_mesh()
-	_tag = AmmoTag.new()
-	_tag.position = Vector3(0, 1.2, 0)
-	add_child(_tag)
-	_tag.set_count(ammo)
 	_beam = MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(1, 1, 1)
@@ -49,16 +55,14 @@ func _ready() -> void:
 	add_child(_beam)
 
 
-func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
+func shot(hit: Dictionary, _dir: Vector2) -> Dictionary:
 	if not alive:
 		return {"result": "none", "reward": 0}
-	ammo -= 1
-	_tag.set_count(ammo)
-	if ammo > 0:
-		return {"result": "plane_hit", "reward": 0}
+	var part: Object = shape_owner_get_owner(shape_find_owner(hit.get("shape", 0)))
+	if part != _dome_cs:
+		return {"result": "blocked", "reward": 0}
 	alive = false
 	_beam.visible = false
-	_tag.visible = false
 	set_deferred("monitoring", false)
 	set_deferred("collision_layer", 0)
 	get_tree().create_timer(3.0).timeout.connect(queue_free)
@@ -73,7 +77,12 @@ func _physics_process(delta: float) -> void:
 		global_position.y -= _fall_v * delta
 		_vis.rotation.z += delta * 2.0
 		return
-	global_position = _anchor + Vector3(sin(_t * 0.7) * 2.0, sin(_t * 1.4) * 0.4, 0.0)
+	if leaving:
+		global_position.y += 8.0 * delta
+		return
+	if game != null:
+		_chase(game.gun.global_position, delta)
+	global_position = _anchor + Vector3(sin(_t * 0.7) * 1.0, sin(_t * 1.4) * 0.3, 0.0)
 	if game == null or game.state != game.State.PLAYING:
 		_beam.visible = false
 		return
@@ -91,6 +100,28 @@ func _physics_process(delta: float) -> void:
 		var dir := (gun.global_position - global_position)
 		dir.z = 0.0
 		_aim_to = global_position + dir.normalized() * Config.UFO_SIGHT * 1.6
+
+
+## Te sigue: se pone al costado tuyo (del lado en que está), un poco arriba.
+func _chase(gun_pos: Vector3, delta: float) -> void:
+	var to_gun := gun_pos - _anchor
+	to_gun.z = 0.0
+	if to_gun.length() > Config.UFO_GIVE_UP:
+		leaving = true
+		_beam.visible = false
+		get_tree().create_timer(4.0).timeout.connect(queue_free)
+		return
+	var side := 1.0 if _anchor.x >= gun_pos.x else -1.0
+	var goal := gun_pos + Vector3(side * Config.UFO_HOVER.x, Config.UFO_HOVER.y, 0.0)
+	var to := goal - _anchor
+	to.z = 0.0
+	var speed := minf(Config.UFO_CHASE_SPEED, to.length() * 1.5)
+	_anchor += to.normalized() * minf(speed * delta, to.length())
+
+
+## Dónde pegarle (para los tests y la demo).
+func dome_position() -> Vector3:
+	return global_position + Vector3(0, DOME_Y + 0.1, 0)
 
 
 func _fire(gun: Node3D) -> void:

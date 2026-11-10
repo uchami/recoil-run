@@ -1,7 +1,7 @@
 class_name Rocket
 extends Area3D
 ## Cohete: cuando te ve, toma tu posición y va rápido en línea recta hacia ahí.
-## Tiene 1 bala: un tiro lo explota (+1). Si te toca, explota: -2 balas, empujón y giro.
+## Un tiro lo explota (+3). Si te toca, explota: -2 balas, empujón y giro.
 
 var game: Node
 var alive := true

@@ -1,19 +1,34 @@
 class_name Chest
 extends StaticBody3D
-## Cofre grande. No tiene vida: tiene balas, como vos (cada tiro le saca una).
-## Bueno: al matarlo, 50 % te da 5 balas y 50 % un poder.
-## Trampa: al matarlo abre la boca con dientes, vuelve con 2 balas y te persigue.
-## Los primeros SAFE_CHESTS cofres que matás (contados para siempre en el teléfono) nunca son trampa.
+## Cofre grande con un candado adelante (del lado de donde venís).
+## - Tiro al candado: el cofre se abre. Bueno: 50 % +15 balas, 50 % un poder.
+##   Trampa: abre la boca con dientes y te persigue (se mata de un tiro a la boca).
+## - Tiros al cofre: rebotan en la madera, no le hacen nada.
+## - Si te chocás el candado: se te pega al arma (pesás más) y el cofre se entierra
+##   ("COFRE PERDIDO").
+## Los primeros SAFE_CHESTS cofres que abrís (contados para siempre en el teléfono) nunca son trampa.
 
 const SIZE := Vector3(1.0, 0.75, 0.8) # tamaño del dibujo base (se escala por SCALE)
 const SCALE := Vector3(5.0, 5.0, 3.5)
+const LOCK_SCALE := 1.15
+const LOCK_POS := Vector3(-2.82, 2.0, 0.4) # colgando adelante, a la altura de la cerradura
 
 var trap := false
 var game: Node
-var ammo := Config.CHEST_AMMO
+var opened := false
+var lost := false
 var _vis: Node3D
 var _lid: Node3D
-var _tag: AmmoTag
+var _lock: LockArea
+var _lock_vis: Node3D
+
+
+## El candado del cofre: es lo que hay que pegarle (y lo que no hay que tocar).
+class LockArea extends Area3D:
+	var chest: Chest
+
+	func shot(hit: Dictionary, dir: Vector2) -> Dictionary:
+		return chest.shot_lock(hit, dir)
 
 
 static func world_size() -> Vector3:
@@ -35,30 +50,46 @@ func _ready() -> void:
 	add_child(_vis)
 	Chest.build_chest(_vis, false)
 	_lid = _vis.get_node("Lid")
-	_tag = AmmoTag.new()
-	_tag.position = Vector3(0, ws.y + 0.6, 0)
-	add_child(_tag)
-	_tag.set_count(ammo)
+
+	_lock_vis = Padlock.build_mesh(LOCK_SCALE)
+	_lock_vis.position = LOCK_POS
+	add_child(_lock_vis)
+	_lock = LockArea.new()
+	_lock.chest = self
+	_lock.collision_layer = Config.L_FLYER
+	_lock.collision_mask = Config.L_GUN
+	var lcs := CollisionShape3D.new()
+	var lbs := BoxShape3D.new()
+	lbs.size = Vector3(0.95, 1.25, 1.0) * LOCK_SCALE
+	lcs.shape = lbs
+	lcs.position = LOCK_POS + Vector3(0, 0.05, -0.4)
+	_lock.add_child(lcs)
+	add_child(_lock)
+	_lock.body_entered.connect(_on_lock_touched)
 
 
+## Una bala le pegó al cofre (no al candado): rebota en la madera.
 func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
-	if ammo <= 0:
+	if opened or lost:
 		return {"result": "none", "reward": 0}
-	ammo -= 1
-	_tag.set_count(ammo)
-	_vis.scale = SCALE * Vector3(1.06, 0.94, 1.0)
-	create_tween().tween_property(_vis, "scale", SCALE, 0.2).set_trans(Tween.TRANS_BACK)
-	if ammo > 0:
-		return {"result": "chest_hit", "reward": 0}
+	_wobble()
+	return {"result": "chest_hit", "reward": 0}
+
+
+## Una bala le pegó al candado: se abre.
+func shot_lock(_hit: Dictionary, dir: Vector2) -> Dictionary:
+	if opened or lost:
+		return {"result": "none", "reward": 0}
+	opened = true
 	collision_layer = 0
-	# Los primeros cofres que matás en tu vida nunca son trampa (se decide al matarlo).
+	_drop_lock(dir)
+	# Los primeros cofres que abrís en tu vida nunca son trampa (se decide al abrirlo).
 	if Records.bump("chests_killed") <= Config.SAFE_CHESTS:
 		trap = false
 	if trap:
 		game.spawn_mimic(global_position)
 		queue_free()
 		return {"result": "trap_open", "reward": 0}
-	_tag.visible = false
 	var tw := create_tween()
 	tw.tween_property(_lid, "rotation:z", -1.9, 0.25).set_trans(Tween.TRANS_BACK)
 	tw.tween_interval(0.8)
@@ -67,6 +98,38 @@ func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
 	if randf() < Config.CHEST_POWER_CHANCE:
 		return {"result": "chest_kill", "reward": 0, "power": true}
 	return {"result": "chest_kill", "reward": Config.CHEST_REWARD}
+
+
+## Te chocaste el candado: se te pega y el cofre se entierra.
+func _on_lock_touched(body: Node) -> void:
+	if opened or lost or not body is Gun or game == null:
+		return
+	if not game.lock_gun():
+		return # intocable (o la partida no está en juego)
+	lost = true
+	_lock_vis.visible = false
+	_lock.set_deferred("monitoring", false)
+	_lock.set_deferred("collision_layer", 0)
+	set_deferred("collision_layer", 0)
+	game.chest_lost(global_position + Vector3(0, world_size().y + 0.5, 0))
+	var tw := create_tween()
+	tw.tween_property(self, "position:y", position.y - world_size().y - 0.6, 1.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(queue_free)
+
+
+func _wobble() -> void:
+	_vis.scale = SCALE * Vector3(1.04, 0.96, 1.0)
+	create_tween().tween_property(_vis, "scale", SCALE, 0.2).set_trans(Tween.TRANS_BACK)
+
+
+## El candado se suelta y cae girando.
+func _drop_lock(dir: Vector2) -> void:
+	_lock.set_deferred("monitoring", false)
+	_lock.collision_layer = 0
+	var tw := create_tween().set_parallel()
+	tw.tween_property(_lock_vis, "position", _lock_vis.position + Vector3(dir.x * 1.5 - 0.5, -2.2, 0), 0.6).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(_lock_vis, "rotation:z", 4.0, 0.6)
+	tw.chain().tween_callback(_lock_vis.hide)
 
 
 ## Arma el cofre (cuerpo + tapa "Lid") como hijos de parent. mouth = versión mimic.
@@ -96,9 +159,21 @@ static func build_chest(parent: Node3D, mouth: bool) -> void:
 		return
 	var white := StandardMaterial3D.new()
 	white.albedo_color = Color("fffbe8")
-	var red := StandardMaterial3D.new()
-	red.albedo_color = Color("c2183c")
-	parent.add_child(_box(Vector3(SIZE.x * 0.8, 0.05, SIZE.z * 0.7), Vector3(0, low - 0.02, 0), red)) # lengua
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color("2a0c14")
+	parent.add_child(_box(Vector3(SIZE.x * 0.9, 0.03, SIZE.z * 0.85), Vector3(0, low - 0.01, 0), dark)) # adentro de la boca
+	# La lengua: el punto débil. Sale por adelante y se mueve (el mimic la anima).
+	var tongue := Node3D.new()
+	tongue.name = "Tongue"
+	tongue.position = Vector3(0.1, low + 0.03, 0)
+	parent.add_child(tongue)
+	var pink := StandardMaterial3D.new()
+	pink.albedo_color = Color("ff3d6e")
+	pink.emission_enabled = true
+	pink.emission = Color("ff2a5a")
+	pink.emission_energy_multiplier = 0.6
+	tongue.add_child(_box(Vector3(0.72, 0.07, SIZE.z * 0.45), Vector3(-0.36, 0.0, 0), pink))
+	tongue.add_child(_box(Vector3(0.12, 0.09, SIZE.z * 0.5), Vector3(-0.72, 0.01, 0), pink))
 	for i in 6:
 		var tx := -SIZE.x / 2.0 + 0.1 + i * 0.16
 		var tooth := MeshInstance3D.new()

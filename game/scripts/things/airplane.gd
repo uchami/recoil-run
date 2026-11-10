@@ -1,14 +1,16 @@
 class_name Airplane
 extends Area3D
-## Avión: cruza el cielo volando hacia la izquierda (hacia vos). Tiene 3 balas.
-## Si te choca: -2 balas, te empuja y te hace girar. Al derribarlo: +3.
+## Avión: cruza el cielo despacio hacia la izquierda (hacia vos). Se derriba de
+## un tiro a la hélice de adelante (+5); en el resto del avión las balas rebotan.
+## Si te choca: -2 balas, te empuja y te hace girar.
 
 var game: Node
-var ammo := Config.PLANE_AMMO
+const PROP_X := -1.55 # la hélice, adelante (vuela hacia -X)
+
 var alive := true
 var _vis: Node3D
 var _prop: Node3D
-var _tag: AmmoTag
+var _prop_cs: CollisionShape3D
 var _life := 0.0
 var _fall_v := 0.0
 var _hit_done := false
@@ -22,23 +24,24 @@ func _ready() -> void:
 	bs.size = Vector3(3.0, 1.0, 1.2)
 	cs.shape = bs
 	add_child(cs)
+	# La hélice: un blanco aparte, un poco más grande que el dibujo para que sea justo.
+	_prop_cs = CollisionShape3D.new()
+	var ps := BoxShape3D.new()
+	ps.size = Vector3(0.45, 1.3, 1.0)
+	_prop_cs.shape = ps
+	_prop_cs.position.x = PROP_X - 0.1
+	add_child(_prop_cs)
 	_build_mesh()
-	_tag = AmmoTag.new()
-	_tag.position = Vector3(0, 1.3, 0)
-	add_child(_tag)
-	_tag.set_count(ammo)
 	body_entered.connect(_on_body)
 
 
-func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
+func shot(hit: Dictionary, _dir: Vector2) -> Dictionary:
 	if not alive:
 		return {"result": "none", "reward": 0}
-	ammo -= 1
-	_tag.set_count(ammo)
-	if ammo > 0:
-		return {"result": "plane_hit", "reward": 0}
+	var part: Object = shape_owner_get_owner(shape_find_owner(hit.get("shape", 0)))
+	if part != _prop_cs:
+		return {"result": "blocked", "reward": 0}
 	alive = false
-	_tag.visible = false
 	set_deferred("monitoring", false)
 	set_deferred("collision_layer", 0)
 	get_tree().create_timer(4.0).timeout.connect(queue_free)
@@ -60,7 +63,7 @@ func _physics_process(delta: float) -> void:
 		return
 	global_position.x -= Config.PLANE_SPEED * delta
 	_life += delta
-	if _life > 14.0:
+	if _life > 30.0:
 		queue_free()
 
 
@@ -84,9 +87,24 @@ func _build_mesh() -> void:
 	_vis.add_child(_box(Vector3(0.4, 0.06, 1.2), Vector3(1.3, 0.1, 0), teal))
 	_vis.add_child(_box(Vector3(0.5, 0.22, 0.4), Vector3(-0.7, 0.32, 0), glass)) # cabina
 	_prop = Node3D.new()
-	_prop.position = Vector3(-1.55, 0, 0)
+	_prop.position = Vector3(PROP_X, 0, 0)
 	_vis.add_child(_prop)
-	_prop.add_child(_box(Vector3(0.05, 1.1, 0.12), Vector3.ZERO, dark))
+	# La hélice es el blanco: aspas grandes con puntas rojas y un cono amarillo.
+	var red := _mat(Color("e8384f"))
+	var yellow := _mat(Color("ffd23a"))
+	_prop.add_child(_box(Vector3(0.05, 1.2, 0.14), Vector3.ZERO, dark))
+	for sy in [-1, 1]:
+		_prop.add_child(_box(Vector3(0.06, 0.18, 0.15), Vector3(0, sy * 0.52, 0), red))
+	var spinner := MeshInstance3D.new()
+	var sm := CylinderMesh.new()
+	sm.top_radius = 0.0
+	sm.bottom_radius = 0.2
+	sm.height = 0.3
+	sm.material = yellow
+	spinner.mesh = sm
+	spinner.rotation.z = PI / 2.0
+	spinner.position = Vector3(PROP_X - 0.12, 0, 0)
+	_vis.add_child(spinner)
 
 
 func _box(size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:

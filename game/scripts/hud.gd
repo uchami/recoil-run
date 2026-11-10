@@ -6,6 +6,8 @@ signal retry_pressed
 signal tuning_changed
 signal test_level(kind: String) # solo para probar: reinicia con un nivel especial
 signal test_power(power: String) # solo para probar: da un poder
+signal market_buy(item: String) # ver Main.MARKET_ITEMS
+signal market_close
 
 const INK := Color("2a1838")
 const GOLD := Color("fff3a6")
@@ -26,6 +28,11 @@ var _over_board: GridContainer
 var _tune_panel: PanelContainer
 var _hurt_flash: ColorRect
 var _powers_box: VBoxContainer
+var _perks: Label
+var _market: Control
+var _market_box: VBoxContainer
+var _arrows: Control
+var _arrow_pool: Array[Node2D] = []
 var _tune_sliders := {}
 var _tune_labels := {}
 
@@ -87,6 +94,10 @@ void fragment() {
 	_powers_box = VBoxContainer.new()
 	_powers_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(_powers_box)
+	_perks = _label("", 28, Color("bff3ff"), 8) # mejoras del mercado que tenés
+	_perks.visible = false
+	_perks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	top.add_child(_perks)
 
 	# Balas sobre el arma
 	_ammo_box = HBoxContainer.new()
@@ -180,6 +191,7 @@ void fragment() {
 	btn.pressed.connect(func(): retry_pressed.emit())
 	box.add_child(btn)
 
+	_build_market()
 	_build_tuning()
 
 
@@ -307,7 +319,7 @@ func _build_tuning() -> void:
 			Tuning.set_value(key, v)
 			_refresh_tuning_labels()
 			tuning_changed.emit())
-	for spec in [["PROBAR NIVEL", test_level, [["↓ ESC.", "stairs_down"], ["↑ ESC.", "stairs_up"], ["AÉREO", "air"], ["VENT.", "fan"], ["COHETE", "booster"]]],
+	for spec in [["PROBAR NIVEL", test_level, [["↓ ESC.", "stairs_down"], ["↑ ESC.", "stairs_up"], ["AÉREO", "air"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"]]],
 			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
 		var t := Label.new()
 		t.text = spec[0]
@@ -353,6 +365,256 @@ func _refresh_tuning_labels() -> void:
 	for key in _tune_labels:
 		var pair: Array = _tune_labels[key]
 		pair[0].text = "%s: %s" % [pair[1], snappedf(Tuning.values[key], _tune_sliders[key].step)]
+
+
+# --- Mercado (bañadera con billetes) ---
+
+func _build_market() -> void:
+	_market = Control.new()
+	_market.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_market.visible = false
+	_root.add_child(_market)
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.1, 0.05, 0.93)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_market.add_child(dim) # (no deja pasar toques al juego)
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_left = 24
+	scroll.offset_right = -24
+	scroll.offset_top = 40
+	scroll.offset_bottom = -30
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_market.add_child(scroll)
+	_market_box = VBoxContainer.new()
+	_market_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_market_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_market_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_market_box.add_theme_constant_override("separation", 22)
+	scroll.add_child(_market_box)
+
+
+const MARKET_TEXT := {
+	"pierce": ["PENETRANTES", "BALAS PENETRANTES", "Cuando una bala mata, sigue de largo:\nhasta %d enemigos de un tiro." % Config.PIERCE_KILLS],
+	"ricochet": ["REBOTE", "BALAS QUE REBOTAN", "Si le pegás al piso, la bala rebota\nuna vez y sigue volando."],
+	"sight": ["MIRILLA", "MIRILLA LÁSER", "Una línea roja te muestra\nadónde apunta el cañón."],
+	"slowmo": ["LENTA x2", "CÁMARA LENTA x2", "Cada headshot te da el doble\nde cámara lenta."],
+	"insurance": ["SEGURO", "SEGURO DE VIDA", "La próxima vez que perdés,\nrevivís con %d balas." % Config.INSURANCE_AMMO],
+	"extra_start": ["+1 BALA", "+1 BALA AL INICIO", "Arrancás cada partida\ncon una bala más (hasta %d)." % (Config.START_AMMO + Config.MAX_EXTRA_START)],
+}
+
+var _market_sel := ""
+var _market_info := {}
+
+
+## info: {ammo, offers: [{item, price, can, available, owned, bought}]}. Se rearma en cada compra.
+func show_market(info: Dictionary) -> void:
+	_market_info = info
+	var items: Array = info.offers.map(func(o): return o.item)
+	if not _market_sel in items:
+		_market_sel = items[0] if not items.is_empty() else ""
+	_render_market()
+	_market.visible = true
+
+
+func _render_market() -> void:
+	var info := _market_info
+	for c in _market_box.get_children():
+		_market_box.remove_child(c)
+		c.queue_free()
+	_market_box.add_child(_label("$ MERCADO $", 84, Color("7dff6b"), 18))
+	# cuántas balas tenés
+	var have := HBoxContainer.new()
+	have.alignment = BoxContainer.ALIGNMENT_CENTER
+	have.add_theme_constant_override("separation", 14)
+	have.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	have.add_child(_label("TENÉS", 40, Color(1, 1, 1, 0.8), 10))
+	have.add_child(_bullet_icon())
+	have.add_child(_label(str(info.ammo), 64, GOLD, 14))
+	_market_box.add_child(have)
+	_market_box.add_child(_label("Elegí una mejora", 32, Color(1, 1, 1, 0.7), 0))
+
+	# las tres tarjetas con dibujo
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	_market_box.add_child(row)
+	var sel: Dictionary = {}
+	for o in info.offers:
+		row.add_child(_market_card(o))
+		if o.item == _market_sel:
+			sel = o
+	if not sel.is_empty():
+		_market_box.add_child(_market_detail(sel, info.ammo))
+
+	var go := _small_button("SEGUIR JUGANDO", Color(1, 1, 1, 0.14), Color.WHITE)
+	go.add_theme_font_size_override("font_size", 40)
+	go.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	go.custom_minimum_size = Vector2(380, 84)
+	go.pressed.connect(func(): market_close.emit())
+	_market_box.add_child(go)
+
+
+## Tarjeta: dibujo grande, nombre corto y precio. Tocarla la elige.
+func _market_card(o: Dictionary) -> Button:
+	var col := MarketIcon.color_of(o.item)
+	var chosen: bool = o.item == _market_sel
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 330)
+	var st := _pill_style(col.darkened(0.55) if chosen else Color(1, 1, 1, 0.07), 30)
+	st.content_margin_left = 8
+	st.content_margin_right = 8
+	st.set_border_width_all(7 if chosen else 3)
+	st.border_color = GOLD if chosen else Color(1, 1, 1, 0.18)
+	if chosen:
+		st.shadow_color = Color(col, 0.6)
+		st.shadow_size = 18
+	for s in ["normal", "hover", "pressed"]:
+		b.add_theme_stylebox_override(s, st)
+	b.pressed.connect(func():
+		_market_sel = o.item
+		_render_market())
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.offset_top = 14
+	v.offset_bottom = -14
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 8)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var icon := MarketIcon.new()
+	icon.item = o.item
+	icon.dim = not o.can and not o.bought
+	icon.custom_minimum_size = Vector2(170, 170)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(icon)
+	v.add_child(_label(MARKET_TEXT[o.item][0], 32, Color.WHITE, 10))
+	var tag: Control
+	if o.bought:
+		tag = _label("¡COMPRADO!", 30, Color("7dff6b"), 10)
+	elif not o.available:
+		tag = _label("YA LO TENÉS", 28, Color(1, 1, 1, 0.6), 8)
+	else:
+		tag = HBoxContainer.new()
+		tag.alignment = BoxContainer.ALIGNMENT_CENTER
+		tag.add_theme_constant_override("separation", 8)
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ic := _bullet_icon()
+		ic.scale = Vector2.ONE * 0.75
+		tag.add_child(ic)
+		tag.add_child(_label(str(o.price), 44, GOLD if o.can else Color("ff6b6b"), 10))
+	v.add_child(tag)
+	return b
+
+
+## Lo elegido, bien grande: qué hace, cuánto dura y el botón de comprar.
+func _market_detail(o: Dictionary, ammo: int) -> Control:
+	var col := MarketIcon.color_of(o.item)
+	var card := PanelContainer.new()
+	var st := _pill_style(Color(col.darkened(0.7), 0.95), 32)
+	st.set_border_width_all(4)
+	st.border_color = col
+	st.content_margin_top = 22
+	st.content_margin_bottom = 26
+	card.add_theme_stylebox_override("panel", st)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	card.add_child(v)
+	v.add_child(_label(MARKET_TEXT[o.item][1], 50, col.lightened(0.35), 12))
+	v.add_child(_label(MARKET_TEXT[o.item][2], 32, Color.WHITE, 0))
+	var lasts := ""
+	match o.item:
+		"extra_start":
+			lasts = "PARA SIEMPRE · ARRANCÁS CON %d" % (Config.START_AMMO + o.owned)
+		"insurance":
+			lasts = "SE USA UNA VEZ"
+		_:
+			lasts = "DURA %d PARTIDAS" % Config.PERK_RUNS + (" · TE QUEDAN %d" % o.owned if o.owned > 0 else "")
+	v.add_child(_label(lasts, 26, Color(1, 1, 1, 0.6), 0))
+	var text := ""
+	if not o.available:
+		text = "YA LO TENÉS" if o.item == "insurance" else "MÁXIMO"
+	elif o.can:
+		text = "COMPRAR POR %d BALAS" % o.price
+	else:
+		text = "TE FALTAN %d BALAS" % (o.price - (ammo - 1))
+	var buy := _small_button(text, Color("7dff6b") if o.can else Color(1, 1, 1, 0.15), INK if o.can else Color(1, 1, 1, 0.6))
+	buy.add_theme_font_size_override("font_size", 40)
+	buy.custom_minimum_size = Vector2(460, 96)
+	buy.disabled = not o.can
+	buy.add_theme_stylebox_override("disabled", _pill_style(Color(1, 1, 1, 0.12)))
+	buy.add_theme_color_override("font_disabled_color", Color(1, 1, 1, 0.6))
+	buy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	buy.pressed.connect(func(): market_buy.emit(o.item))
+	v.add_child(buy)
+	return card
+
+
+# --- flechas en el borde: lo peligroso que viene de afuera ---
+
+## threats: [{at: Vector2 (en pantalla, puede estar afuera), color, near: 0..1}]
+func set_threats(threats: Array) -> void:
+	if _arrows == null:
+		_arrows = Control.new()
+		_arrows.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_arrows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_root.add_child(_arrows)
+		_root.move_child(_arrows, 1) # debajo de los carteles
+	while _arrow_pool.size() < threats.size():
+		_arrow_pool.append(_make_arrow())
+	var vp := get_viewport().get_visible_rect().size
+	var c := vp / 2.0
+	var margin := 46.0
+	var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() / 90.0)
+	for i in _arrow_pool.size():
+		var a := _arrow_pool[i]
+		a.visible = i < threats.size()
+		if not a.visible:
+			continue
+		var t: Dictionary = threats[i]
+		var dir: Vector2 = (t.at - c)
+		if dir.length() < 1.0:
+			dir = Vector2.RIGHT
+		dir = dir.normalized()
+		var k := minf((c.x - margin) / maxf(absf(dir.x), 0.001), (c.y - margin) / maxf(absf(dir.y), 0.001))
+		a.position = c + dir * k
+		a.rotation = dir.angle()
+		a.scale = Vector2.ONE * (0.8 + 0.6 * t.near)
+		(a.get_node("Fill") as Polygon2D).color = t.color
+		a.modulate.a = pulse
+
+
+func visible_arrows() -> int:
+	return _arrow_pool.filter(func(a): return a.visible).size()
+
+
+func _make_arrow() -> Node2D:
+	var a := Node2D.new()
+	var pts := PackedVector2Array([Vector2(28, 0), Vector2(-16, -22), Vector2(-8, 0), Vector2(-16, 22)])
+	var outline := Polygon2D.new()
+	outline.polygon = pts
+	outline.color = INK
+	outline.scale = Vector2.ONE * 1.3
+	outline.position.x = -3
+	a.add_child(outline)
+	var fill := Polygon2D.new()
+	fill.name = "Fill"
+	fill.polygon = pts
+	a.add_child(fill)
+	_arrows.add_child(a)
+	return a
+
+
+func hide_market() -> void:
+	_market.visible = false
+
+
+## Mejoras que tenés (debajo de la distancia); "" las esconde.
+func set_perks(text: String) -> void:
+	_perks.text = text
+	_perks.visible = text != ""
 
 
 # --- API para main.gd ---

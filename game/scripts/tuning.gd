@@ -3,6 +3,10 @@ class_name Tuning
 ## Se guardan en el teléfono (user://tuning.cfg). Uso: Tuning.values.gravity
 
 const SAVE_PATH := "user://tuning.cfg"
+# Subir esto cuando cambia un valor por defecto que tiene que pisar lo guardado.
+# Cada versión lista las claves que se vuelven a poner en su valor por defecto.
+const VERSION := 2
+const MIGRATIONS := {2: ["backward_recoil_factor"]} # 0.2 -> 0.4
 
 # Física "lunar": poca gravedad para tener tiempo de maniobrar en el aire.
 const DEFAULTS := {
@@ -10,7 +14,7 @@ const DEFAULTS := {
 	"recoil_speed": 7.0, # m/s en sentido contrario al cañón
 	# Física trucha a propósito: disparar hacia adelante empuja hacia atrás solo
 	# este factor de lo que empuja hacia adelante un disparo hacia atrás.
-	"backward_recoil_factor": 0.2,
+	"backward_recoil_factor": 0.4,
 	"spin_on_shot": 5.0, # rad/s antihorario después de cada disparo
 	"velocity_keep": 0.25, # cuánto de la velocidad previa se conserva al disparar
 	"max_fall_speed": 10.0, # m/s: tope de velocidad de caída (planea)
@@ -47,6 +51,13 @@ static func load_saved() -> void:
 	if cf.load(SAVE_PATH) == OK:
 		for k in DEFAULTS:
 			values[k] = float(cf.get_value("tuning", k, DEFAULTS[k]))
+		var saved_version := int(cf.get_value("meta", "version", 1))
+		if saved_version < VERSION:
+			for v in MIGRATIONS:
+				if v > saved_version:
+					for k in MIGRATIONS[v]:
+						values[k] = DEFAULTS[k]
+			_save()
 
 
 static func set_value(key: String, value: float) -> void:
@@ -65,4 +76,5 @@ static func _save() -> void:
 	var cf := ConfigFile.new()
 	for k in DEFAULTS:
 		cf.set_value("tuning", k, values[k])
+	cf.set_value("meta", "version", VERSION)
 	cf.save(SAVE_PATH)

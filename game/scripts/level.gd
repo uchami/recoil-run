@@ -2,7 +2,8 @@ class_name Level
 extends RefCounted
 ## Generador infinito del piso: bloques de altura random con huecos entre algunos.
 ## El arranque es fijo (piso plano con los 3 personajes); de ahí en adelante, random.
-## Cada tanto arranca un nivel especial (escalera abajo, escalera arriba, aéreo).
+## Cada tanto arranca un nivel especial (escalera abajo, escalera arriba, aéreo):
+## los primeros 300 m, uno cortito cada 100 m (uno de cada tipo); después, cada 500 m.
 ##
 ## Cada bloque trae sus ítems de piso: [{type, x, y}]. Los bichos voladores no salen
 ## de acá: main.gd los hace aparecer alrededor de la altura del arma.
@@ -32,8 +33,9 @@ const GROUND_WEIGHTS := {"plain": 3.0, "sword": 2.0, "shield": 2.0, "helmet": 2.
 
 # Niveles especiales
 const SPECIALS := ["stairs_down", "stairs_up", "air"]
-const SPECIAL_FIRST := 300.0 # (para probar; la idea final es cada 3000 m con backoff)
-const SPECIAL_EVERY := 500.0
+const SPECIAL_EARLY := [100.0, 200.0, 300.0] # al principio, uno cada 100 m...
+const SPECIAL_EARLY_LEN := 60.0 # ...cortitos, para que entren
+const SPECIAL_EVERY := 500.0 # después, cada 500 m (y de largo completo)
 const STAIRS_LEN := 300.0
 const STAIRS_STEP_LEN := Vector2(3.0, 6.0)
 const STAIRS_DOWN_DROP := Vector2(0.8, 2.2)
@@ -54,10 +56,12 @@ var _x := START_X
 var _top := 0.0
 var _count := 0
 var _next_item_x := 0.0
-var _next_special_x := SPECIAL_FIRST
+var _next_special_x: float = SPECIAL_EARLY[0]
 var _special_end := 0.0
 var _special_bag: Array = []
-var _force_lift := "" # solo para probar: "fan" o "booster" apenas termina el arranque
+var _specials_started := 0
+var _force_lift := "" # solo para probar: "fan", "booster" o "market" apenas termina el arranque
+var _last_market_x := -INF
 
 
 func _init(seed_value: int = -1, force_special := "") -> void:
@@ -65,11 +69,12 @@ func _init(seed_value: int = -1, force_special := "") -> void:
 		rng.randomize()
 	else:
 		rng.seed = seed_value
-	if force_special in ["fan", "booster"]:
+	if force_special in ["fan", "booster", "market"]:
 		_force_lift = force_special
 	elif force_special != "":
 		_next_special_x = START_X + START_LEN
 		_special_bag = [force_special]
+		_specials_started = SPECIAL_EARLY.size() # el de prueba va de largo completo
 
 
 ## Próximo bloque sólido: {x0, x1, top, items: [{type, x, y}], special}.
@@ -102,8 +107,14 @@ func _start_special() -> void:
 			_special_bag[i] = _special_bag[j]
 			_special_bag[j] = tmp
 	special = _special_bag.pop_back()
-	_special_end = _x + (AIR_LEN if special == "air" else STAIRS_LEN)
-	_next_special_x = _special_end + SPECIAL_EVERY
+	_specials_started += 1
+	var early := _specials_started <= SPECIAL_EARLY.size()
+	var length := SPECIAL_EARLY_LEN if early else (AIR_LEN if special == "air" else STAIRS_LEN)
+	_special_end = _x + length
+	if _specials_started < SPECIAL_EARLY.size():
+		_next_special_x = maxf(SPECIAL_EARLY[_specials_started], _special_end + 10.0)
+	else:
+		_next_special_x = _special_end + SPECIAL_EVERY
 
 
 func _end_special() -> void:
@@ -111,15 +122,22 @@ func _end_special() -> void:
 
 
 func _normal_block() -> Dictionary:
-	if _count >= 2 and rng.randf() < GAP_CHANCE:
-		var ramp := clampf(_x / GAP_RAMP_DIST, 0.0, 1.0) * GAP_RAMP_MAX
+	# El nivel especial arranca justo en su marca: cerca de ella, sin hueco y el
+	# último bloque termina ahí.
+	var ramp := clampf(_x / GAP_RAMP_DIST, 0.0, 1.0) * GAP_RAMP_MAX
+	var to_special := _next_special_x - _x
+	var gap_ok := to_special > BLOCK_LEN.y + GAP_LEN.y + ramp
+	if _count >= 2 and rng.randf() < GAP_CHANCE and gap_ok:
 		_x += rng.randf_range(GAP_LEN.x, GAP_LEN.y + ramp)
 
 	if rng.randf() < UP_CHANCE:
 		_top += rng.randf_range(MIN_STEP, MAX_STEP_UP)
 	else:
 		_top -= rng.randf_range(MIN_STEP, MAX_STEP_DOWN)
-	return _finish_block(rng.randf_range(BLOCK_LEN.x, BLOCK_LEN.y), "")
+	var length := rng.randf_range(BLOCK_LEN.x, BLOCK_LEN.y)
+	if not gap_ok and length > to_special - BLOCK_LEN.x:
+		length = maxf(to_special, 2.0) # el último antes del especial (o uno corto de relleno)
+	return _finish_block(length, "")
 
 
 func _stairs_block() -> Dictionary:
@@ -176,6 +194,15 @@ func _finish_block(length: float, kind: String) -> Dictionary:
 			lift = "booster"
 		elif b.x0 > Config.FAN_FROM and rng.randf() < Config.FAN_CHANCE:
 			lift = "fan"
+		# Mercado: la bañadera con billetes, a veces, pasados los 300 m.
+		if lift == "" and b.x1 - b.x0 >= Config.TUB_SIZE.x + 2.0 and b.x0 > Config.MARKET_FROM \
+				and b.x0 - _last_market_x > Config.MARKET_MIN_GAP and rng.randf() < Config.MARKET_CHANCE:
+			lift = "market"
+	if lift == "market" and b.x1 - b.x0 < Config.TUB_SIZE.x + 1.0:
+		lift = "" # (solo el de prueba) no entra: espera un bloque más largo
+		_force_lift = "market"
+	if lift == "market":
+		_last_market_x = b.x0
 	if lift != "":
 		b.items.append({"type": lift, "x": (b.x0 + b.x1) / 2.0, "y": b.top})
 		_next_item_x = maxf(_next_item_x, b.x1) # nada más arriba de este bloque

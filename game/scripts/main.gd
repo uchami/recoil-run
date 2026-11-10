@@ -1,7 +1,7 @@
 extends Node3D
 ## Juego: arma el mundo, maneja disparos, reglas, cámara, slow-mo y efectos.
 
-enum State { READY, PLAYING, OVER }
+enum State { READY, PLAYING, OVER, MARKET }
 
 const FOV := 40.0
 const VISIBLE_WIDTH := 8.5 # m visibles a lo ancho (pantallas verticales)
@@ -63,6 +63,22 @@ var sky_spawned := 0
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
 var _sky_next := 12.0
 var _sky_last := Vector3.ZERO
+var bullets: Array = [] # balas en vuelo: {pos, dir, left, kills, max_kills, killed, exclude, node}
+var perks := {} # mejoras del mercado activas en esta partida: "pierce", "ricochet", "slowmo", "sight"
+var pierce: bool: # balas penetrantes
+	get:
+		return perks.has("pierce")
+	set(value):
+		if value:
+			perks["pierce"] = true
+		else:
+			perks.erase("pierce")
+var markets_visited := 0
+var market_offers: Array = [] # lo que ofrece la bañadera en esta visita
+var bought_this_run := 0 # cada compra encarece las siguientes (en esta partida)
+var _bought_visit: Array = [] # lo que compraste en esta visita al mercado
+var revived := false
+var _float_pos := Vector3(Level.START.x, Level.START.y, 0.0) # dónde flota el arma antes del primer tiro
 
 
 func _ready() -> void:
@@ -70,6 +86,11 @@ func _ready() -> void:
 	Tuning.load_saved()
 	_apply_gravity()
 	Records.load_saved()
+	ammo = Config.START_AMMO + Records.stat("extra_start")
+	max_ammo = ammo
+	for k in PERK_STATS:
+		if Records.stat(PERK_STATS[k]) > 0:
+			perks[k] = true
 	level = Level.new(level_seed, Level.debug_special)
 	Level.debug_special = "" # "probar nivel" vale para una sola partida
 
@@ -112,6 +133,9 @@ func _ready() -> void:
 	hud.test_power.connect(func(power: String):
 		if state == State.PLAYING:
 			_activate_power(power, gun.global_position))
+	hud.market_buy.connect(_market_buy)
+	hud.market_close.connect(_market_close)
+	_refresh_perks()
 
 	_build_stars()
 	_update_camera(1.0)
@@ -142,6 +166,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_tap() -> void:
+	if state == State.MARKET: # se usa con los botones del mercado
+		return
 	if state == State.OVER:
 		if Time.get_ticks_msec() - _over_at_ms > 600:
 			restart()
@@ -175,30 +201,176 @@ func shoot() -> void:
 
 	var from := gun.muzzle_position()
 	var d := gun.barrel_dir()
-	var dir3 := Vector3(d.x, d.y, 0.0)
 	gun.fire(first)
-
-	var hit := _raycast(from, from + dir3 * Config.BULLET_RANGE)
-	var end := from + dir3 * Config.BULLET_RANGE
-	var killed := false
-	if not hit.is_empty():
-		end = hit.position
-		var c: Object = hit.collider
-		if c and c.has_method("shot"):
-			killed = _on_hit(c.shot(hit, d), end)
-		else:
-			_fx_puff(end, Color("55555f"), 8, 0.5, false)
-	_fx_tracer(from, end)
 	_fx_flash(from)
-	kill_streak = kill_streak + 1 if killed else 0
+	_spawn_bullet(from, d)
+
+
+# --- balas: vuelan (rápido, pero se ven) ---
+
+## Una bala sale del cañón. Avanza en cada paso de física (en slow-mo, lenta).
+func _spawn_bullet(from: Vector3, d: Vector2) -> void:
+	var node := Node3D.new()
+	var core := MeshInstance3D.new()
+	var cm := BoxMesh.new()
+	cm.size = Vector3(0.45, 0.07, 0.07)
+	cm.material = _unshaded(Color("fff6d0") if not pierce else Color("bff3ff"))
+	core.mesh = cm
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(core)
+	var tail := MeshInstance3D.new() # estela: crece hasta 1.8 m detrás de la bala
+	tail.name = "Tail"
+	var tm := BoxMesh.new()
+	tm.size = Vector3(1.0, 0.04, 0.04)
+	tm.material = _unshaded(Color(1.0, 0.85, 0.45, 0.45) if not pierce else Color(0.45, 0.9, 1.0, 0.5))
+	tail.mesh = tm
+	tail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tail.scale.x = 0.01
+	node.add_child(tail)
+	add_child(node)
+	node.global_position = from
+	node.rotation.z = atan2(d.y, d.x)
+	bullets.append({"pos": from, "dir": Vector3(d.x, d.y, 0.0), "dir2": d, "left": Config.BULLET_RANGE,
+		"kills": 0, "max_kills": Config.PIERCE_KILLS if pierce else 1, "killed": false,
+		"bounces": Config.RICOCHETS if perks.has("ricochet") else 0, "seg": Config.BULLET_RANGE,
+		"exclude": [gun.get_rid()], "node": node})
+
+
+func _update_bullets(delta: float) -> void:
+	for b in bullets.duplicate():
+		_step_bullet(b, Config.BULLET_SPEED * delta)
+
+
+## Avanza una bala `step` metros. Si mata y es penetrante, sigue (hasta PIERCE_KILLS).
+func _step_bullet(b: Dictionary, step: float) -> void:
+	step = minf(step, b.left)
+	for guard in 8:
+		if step <= 0.0:
+			break
+		var to: Vector3 = b.pos + b.dir * step
+		var hit := _raycast(b.pos, to, b.exclude)
+		if hit.is_empty():
+			b.left -= step
+			b.pos = to
+			break
+		var travelled: float = b.pos.distance_to(hit.position)
+		b.left -= travelled
+		step -= travelled
+		b.pos = hit.position
+		var c: Object = hit.collider
+		if c == null or not c.has_method("shot"):
+			_fx_puff(hit.position, Color("55555f"), 8, 0.5, false) # piso
+			if b.bounces > 0: # balas que rebotan (mercado)
+				_ricochet(b, hit.normal)
+				continue
+			_end_bullet(b)
+			return
+		# Regla: no se puede matar lo que todavía no apareció en pantalla (la bala pasa de largo).
+		if not _was_seen(c, hit.position):
+			b.exclude.append(c.get_rid())
+			continue
+		var res: Dictionary = c.shot(hit, b.dir2)
+		if res.get("result", "none") == "none": # ya estaba muerto: lo atraviesa
+			b.exclude.append(c.get_rid())
+			continue
+		if _on_hit(res, hit.position):
+			b.killed = true
+			b.kills += 1
+			if b.kills < b.max_kills: # penetrante: sigue volando
+				b.exclude.append(c.get_rid())
+				if b.kills >= 2:
+					hud.popup_world(camera, hit.position + Vector3(0, 1.2, 0), "x%d" % b.kills, "headshot")
+				if b.kills == Config.PIERCE_SLOWMO_KILLS: # festejo: cámara lenta
+					start_slowmo(Config.SLOWMO_DURATION * 1.5)
+					sfx.play("slowmo", -6.0, 1.0, 0.0)
+				continue
+		_end_bullet(b)
+		return
+	if b.left <= 0.0:
+		_end_bullet(b)
+		return
+	var node: Node3D = b.node
+	node.global_position = b.pos
+	var tail_len := minf(1.8, b.seg - b.left)
+	var tail: Node3D = node.get_node("Tail")
+	tail.scale.x = maxf(tail_len, 0.01)
+	tail.position.x = -tail_len / 2.0
+
+
+## Rebota en el piso: sale espejada y la estela arranca de nuevo.
+func _ricochet(b: Dictionary, normal: Vector3) -> void:
+	b.bounces -= 1
+	var od: Vector3 = b.dir
+	var nd := od.bounce(normal)
+	nd.z = 0.0
+	nd = nd.normalized()
+	b.dir = nd
+	b.dir2 = Vector2(nd.x, nd.y)
+	b.pos += normal * 0.02
+	b.seg = b.left
+	(b.node as Node3D).rotation.z = atan2(nd.y, nd.x)
+	sfx.play("clank", -8.0, 1.6)
+
+
+## La bala terminó (pegó, se fue de rango): rachas y poderes se deciden acá.
+func _end_bullet(b: Dictionary) -> void:
+	bullets.erase(b)
+	var node: Node3D = b.node
+	node.global_position = b.pos
+	var tw := create_tween()
+	tw.tween_property(node, "scale", Vector3(0.2, 1.0, 1.0), 0.06)
+	tw.tween_callback(node.queue_free)
+	kill_streak = kill_streak + 1 if b.killed else 0
 	if _power_pending or streak >= Config.STREAK_FOR_POWER or kill_streak >= Config.STREAK_FOR_POWER:
 		_power_pending = false
-		grant_power(end)
+		grant_power(b.pos)
+
+
+## ¿Esto ya apareció alguna vez en pantalla? (o está en pantalla justo donde le pegaron)
+func _was_seen(c: Object, point: Vector3) -> bool:
+	if camera.is_position_in_frustum(point):
+		return true
+	var n: Node = c as Node
+	while n != null and n != self:
+		if n.has_meta("seen"):
+			return true
+		n = n.get_parent()
+	return false
+
+
+## Marca lo que está en pantalla como "visto" (desde ahí se lo puede matar).
+func _mark_seen() -> void:
+	for list in [enemies, entities]:
+		for n in list:
+			if is_instance_valid(n) and not n.has_meta("seen") and camera.is_position_in_frustum(n.global_position + Vector3(0, 0.6, 0)):
+				n.set_meta("seen", true)
+
+
+const THREAT_COLORS := {"Rocket": Color("ff4d4d"), "Airplane": Color("ffa03a"), "Ufo": Color("7dff6b")}
+
+
+## Lo peligroso que está cerca pero fuera de pantalla: para las flechas del borde.
+func _threats() -> Array:
+	var out := []
+	var gp := gun.global_position
+	for n in entities:
+		if not is_instance_valid(n) or not (n is Rocket or n is Airplane or n is Ufo) or not n.alive:
+			continue
+		var p: Vector3 = n.global_position
+		var dist := p.distance_to(gp)
+		if dist > Config.ARROW_RANGE or camera.is_position_in_frustum(p):
+			continue
+		var kind := "Rocket" if n is Rocket else ("Airplane" if n is Airplane else "Ufo")
+		out.append({"at": camera.unproject_position(p), "color": THREAT_COLORS[kind], "near": 1.0 - dist / Config.ARROW_RANGE})
+	return out
 
 
 ## Lo que pueden pegar las balas: piso, personajes, cofres y bichos (áreas).
-func _raycast(from: Vector3, to: Vector3) -> Dictionary:
-	var q := PhysicsRayQueryParameters3D.create(from, to, Config.L_TERRAIN | Config.L_ENEMY | Config.L_FLYER, [gun.get_rid()])
+func _raycast(from: Vector3, to: Vector3, exclude: Array = []) -> Dictionary:
+	var ex: Array[RID] = [gun.get_rid()]
+	for r in exclude:
+		ex.append(r)
+	var q := PhysicsRayQueryParameters3D.create(from, to, Config.L_TERRAIN | Config.L_ENEMY | Config.L_FLYER, ex)
 	q.hit_from_inside = true
 	q.collide_with_areas = true
 	return get_world_3d().direct_space_state.intersect_ray(q)
@@ -216,16 +388,15 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 			kills += 1
 			headshots += 1
 			streak += 1
-			_slowmo_left = Config.SLOWMO_DURATION
-			Engine.time_scale = Config.SLOWMO_SCALE
-			_fx_puff(point, Color("ff2a2a"), 18, 0.9, true)
+			start_slowmo(Config.SLOWMO_DURATION * (Config.LONG_SLOWMO if perks.has("slowmo") else 1.0))
+			_fx_puff(point, Color("ff2a2a") if not res.get("space", false) else Color("f2f2f0"), 18, 0.9, true)
 			hud.popup_world(camera, above, "HEADSHOT! +%d" % reward, "headshot")
 			sfx.play("headshot")
 			sfx.play("slowmo", -6.0, 1.0, 0.0)
 		"kill":
 			kills += 1
 			streak = 0
-			_fx_puff(point, Color("ff2a2a"), 12, 0.9, true)
+			_fx_puff(point, Color("ff2a2a") if not res.get("space", false) else Color("f2f2f0"), 12, 0.9, true)
 			hud.popup_world(camera, above, "+%d" % reward, "")
 			sfx.play("kill")
 		"blocked":
@@ -267,6 +438,11 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 
 # --- daño, objetos y poderes (los llaman las cosas del mundo) ---
 
+func start_slowmo(duration: float) -> void:
+	_slowmo_left = maxf(_slowmo_left, duration)
+	Engine.time_scale = Config.SLOWMO_SCALE
+
+
 func power_on(power: String) -> bool:
 	return powers.get(power, 0.0) > 0.0
 
@@ -292,11 +468,16 @@ func hurt(amount: int, from: Vector3, knock := Vector2.ZERO, spin := 0.0, _cause
 
 ## away: -1 = te devuelve a la izquierda (lo normal), +1 = a la derecha.
 ## Un candado te tocó: se pega al arma y pesa más por unos segundos.
-## Devuelve false si no se pudo pegar (intocable, o ya tenés uno).
+## Devuelve false si no se pudo pegar (intocable, o no estás jugando).
+## Si ya tenés uno, se renueva el tiempo.
 func lock_gun() -> bool:
-	if state != State.PLAYING or power_on("untouchable") or power_on("locked"):
+	if state != State.PLAYING or power_on("untouchable"):
 		return false
+	var had := power_on("locked")
 	powers.locked = Config.LOCK_TIME
+	if had:
+		sfx.play("lock")
+		return true
 	gun.weight = Config.LOCK_WEIGHT
 	var lock_vis := Padlock.build_mesh(0.45)
 	lock_vis.name = "Lock"
@@ -305,6 +486,12 @@ func lock_gun() -> bool:
 	sfx.play("lock")
 	hud.popup_world(camera, gun.global_position + Vector3(0, 1.0, 0), "¡CANDADO!", "hurt")
 	return true
+
+
+## Te chocaste el candado de un cofre: el cofre se entierra.
+func chest_lost(at: Vector3) -> void:
+	hud.popup_world(camera, at, "COFRE PERDIDO", "hurt")
+	sfx.play("land", -2.0, 0.6)
 
 
 func _unlock_gun() -> void:
@@ -396,6 +583,136 @@ func spawn_mimic(pos: Vector3) -> void:
 	entities.append(m)
 
 
+# --- mercado (bañadera con billetes) ---
+
+## El arma se quedó en la bañadera: se abre el mercado.
+func enter_market(tub: Node3D) -> void:
+	if state != State.PLAYING:
+		return
+	state = State.MARKET
+	markets_visited += 1
+	_queued_shots = 0
+	gun.freeze = true
+	gun.linear_velocity = Vector3.ZERO
+	gun.angular_velocity = Vector3.ZERO
+	_idle_angle = gun.angle()
+	_float_pos = tub.global_position + Vector3(0.0, Config.TUB_SIZE.y + 2.2, 0.0)
+	_roll_offers()
+	_bought_visit = []
+	sfx.play("powerup")
+	hud.show_market(_market_info())
+
+
+const MARKET_ITEMS := ["pierce", "ricochet", "sight", "slowmo", "insurance", "extra_start"]
+const PERK_STATS := {"pierce": "pierce_runs", "ricochet": "ricochet_runs", "sight": "sight_runs", "slowmo": "slowmo_runs"}
+
+
+func _market_info() -> Dictionary:
+	var offers := []
+	for item in market_offers:
+		var owned := Records.stat(PERK_STATS[item]) if PERK_STATS.has(item) else Records.stat(item)
+		offers.append({"item": item, "price": price(item), "can": can_buy(item), "available": _offerable(item), "owned": owned,
+			"bought": item in _bought_visit})
+	return {"ammo": ammo, "offers": offers}
+
+
+## Elige al azar las mejoras de esta visita (las que todavía se pueden comprar).
+func _roll_offers() -> void:
+	var pool := MARKET_ITEMS.filter(_offerable)
+	pool.shuffle()
+	market_offers = pool.slice(0, Config.MARKET_OFFERS)
+
+
+func _offerable(item: String) -> bool:
+	match item:
+		"extra_start":
+			return Records.stat("extra_start") < Config.MAX_EXTRA_START
+		"insurance":
+			return Records.stat("insurance") == 0
+	return item in MARKET_ITEMS
+
+
+func base_price(item: String) -> int:
+	return {"pierce": Config.PIERCE_COST, "ricochet": Config.RICOCHET_COST, "sight": Config.SIGHT_COST,
+		"slowmo": Config.SLOWMO_COST, "insurance": Config.INSURANCE_COST, "extra_start": Config.EXTRA_START_COST}.get(item, 999)
+
+
+## Cada compra en esta partida encarece las siguientes.
+func price(item: String) -> int:
+	return roundi(base_price(item) * (1.0 + Config.MARKET_PRICE_STEP * bought_this_run))
+
+
+## Se puede gastar todo menos una bala (siempre seguís jugando).
+func can_buy(item: String) -> bool:
+	return _offerable(item) and ammo - 1 >= price(item)
+
+
+func _market_buy(item: String) -> void:
+	if state != State.MARKET or not can_buy(item):
+		return
+	ammo -= price(item)
+	bought_this_run += 1
+	_bought_visit.append(item)
+	match item:
+		"extra_start":
+			Records.set_stat("extra_start", Records.stat("extra_start") + 1)
+		"insurance":
+			Records.set_stat("insurance", 1)
+		_:
+			Records.set_stat(PERK_STATS[item], Records.stat(PERK_STATS[item]) + Config.PERK_RUNS)
+			perks[item] = true
+	sfx.play("pickup")
+	hud.bump_ammo()
+	_refresh_perks()
+	hud.show_market(_market_info())
+
+
+## Salís del mercado: flotás girando (inmune) hasta el primer tiro, como al arrancar.
+func _market_close() -> void:
+	if state != State.MARKET:
+		return
+	hud.hide_market()
+	state = State.READY
+
+
+func _refresh_perks() -> void:
+	var names := {"pierce": "PENETRANTES", "ricochet": "REBOTE", "sight": "MIRILLA", "slowmo": "CÁMARA LENTA"}
+	var parts := []
+	for k in MARKET_ITEMS:
+		if perks.has(k):
+			parts.append("%s %d" % [names[k], Records.stat(PERK_STATS[k])])
+	if Records.stat("insurance") > 0:
+		parts.append("SEGURO")
+	hud.set_perks(" · ".join(parts))
+
+
+## Seguro de vida: en vez de perder, flotás con unas balas (una sola vez).
+func _revive() -> void:
+	Records.set_stat("insurance", 0)
+	revived = true
+	ammo = Config.INSURANCE_AMMO
+	_rest_timer = 0.0
+	_empty_timer = 0.0
+	_hurt_cd = Config.HURT_COOLDOWN
+	_queued_shots = 0
+	var p := gun.global_position
+	var x := p.x
+	for b in blocks: # arriba de piso firme (si te caíste en un hueco, del otro lado)
+		if b.x1 > x + 1.0:
+			x = maxf(x, b.x0 + 1.5)
+			break
+	_float_pos = Vector3(x, maxf(p.y, Level.top_at(blocks, x)) + 3.0, 0.0)
+	gun.freeze = true
+	gun.linear_velocity = Vector3.ZERO
+	gun.angular_velocity = Vector3.ZERO
+	_idle_angle = gun.angle()
+	state = State.READY
+	sfx.play("powerup")
+	hud.bump_ammo()
+	hud.popup_world(camera, _float_pos + Vector3(0, 1.2, 0), "¡SEGURO DE VIDA!", "headshot")
+	_refresh_perks()
+
+
 # --- loop ---
 
 func _physics_process(delta: float) -> void:
@@ -403,10 +720,11 @@ func _physics_process(delta: float) -> void:
 		_idle_angle += Config.IDLE_SPIN * delta
 		_demo_autofire()
 		var bob := sin(_time * 2.5) * 0.12
-		gun.global_transform = Transform3D(Basis(Vector3.BACK, _idle_angle), Vector3(Level.START.x, Level.START.y + bob, 0.0))
+		gun.global_transform = Transform3D(Basis(Vector3.BACK, _idle_angle), _float_pos + Vector3(0.0, bob, 0.0))
 	while _queued_shots > 0:
 		_queued_shots -= 1
 		shoot()
+	_update_bullets(delta)
 
 
 ## Solo desarrollo: `godot --path . -- --demo-headshot` dispara solo cuando el
@@ -455,6 +773,8 @@ func _process(delta: float) -> void:
 			elif k == "locked":
 				_unlock_gun()
 	_update_laser()
+	_mark_seen()
+	hud.set_threats(_threats() if state == State.PLAYING or state == State.READY else [])
 	if state == State.PLAYING:
 		_check_game_over(real_dt, p)
 
@@ -494,12 +814,17 @@ func _check_game_over(real_dt: float, p: Vector3) -> void:
 
 
 func _game_over(title: String) -> void:
+	if state == State.PLAYING and Records.stat("insurance") > 0:
+		_revive()
+		return
 	state = State.OVER
 	_over_at_ms = Time.get_ticks_msec()
 	sfx.play("game_over")
 	powers.clear()
 	gun.set_glow(null)
 	_unlock_gun()
+	for k in perks: # las mejoras duran unas partidas: esta cuenta
+		Records.set_stat(PERK_STATS[k], maxi(0, Records.stat(PERK_STATS[k]) - 1))
 	hud.set_powers(powers)
 	max_ammo = maxi(max_ammo, ammo)
 	var attempt := {"dist": distance, "height": max_height, "ammo": max_ammo, "kills": kills, "headshots": headshots}
@@ -669,7 +994,17 @@ func _sky_spawner(p: Vector3) -> void:
 	else: # aparece adelante, cerca de tu altura
 		pos = Vector3(p.x + randf_range(Config.SKY_SPAWN_AHEAD.x, Config.SKY_SPAWN_AHEAD.y), p.y + randf_range(-2.0, 5.0), 0.0)
 	pos.y = maxf(pos.y, Level.top_at(blocks, pos.x) + 2.5) # nunca metido en el piso
-	_spawn_item({"type": sky_type(p.y - Level.top_at(blocks, p.x)), "x": pos.x, "y": pos.y})
+	var type := sky_type(p.y - Level.top_at(blocks, p.x))
+	if type == "ufo" and entities.filter(func(n): return is_instance_valid(n) and n is Ufo and n.alive).size() >= Config.UFO_MAX:
+		type = "astronaut" # los ovnis te persiguen: no más de UFO_MAX a la vez
+	if type == "astronaut": # vienen en grupito (a veces en fila: ideal para balas penetrantes)
+		var n := randi_range(Config.ASTRONAUT_GROUP.x, Config.ASTRONAUT_GROUP.y)
+		var in_row := randf() < 0.4
+		for i in n:
+			var off := Vector3(i * 1.6, randf_range(-0.3, 0.3), 0.0) if in_row else Vector3(randf_range(-1.0, 4.0), randf_range(-2.5, 2.5), 0.0)
+			_spawn_item({"type": type, "x": pos.x + off.x, "y": pos.y + off.y})
+	else:
+		_spawn_item({"type": type, "x": pos.x, "y": pos.y})
 	sky_spawned += 1
 
 
@@ -680,10 +1015,10 @@ func sky_type(altitude: float) -> String:
 	if randf() < Config.PADLOCK_CHANCE: # candados, a cualquier altura
 		return "padlock"
 	var r := randf()
-	if altitude >= Config.UFO_ALT: # ovnis y astronautas; ya no hay aviones; los cohetes siguen
-		return "ufo" if r < 0.35 else ("astronaut" if r < 0.65 else "rocket")
-	if altitude >= Config.ROCKET_ALT: # cohetes con aviones, sin pájaros
-		return "rocket" if r < 0.6 else "plane"
+	if altitude >= Config.UFO_ALT: # ovnis, astronautas y cohetes; ya no hay aviones
+		return "ufo" if r < 0.25 else ("astronaut" if r < 0.75 else "rocket")
+	if altitude >= Config.ROCKET_ALT: # astronautas, cohetes y aviones; sin pájaros
+		return "astronaut" if r < 0.45 else ("rocket" if r < 0.8 else "plane")
 	if altitude >= Config.PLANE_ALT: # aviones junto con los halcones
 		return "plane" if r < 0.45 else ("hawk" if r < 0.85 else "bat")
 	return "hawk" if r < 0.4 else "bat"
@@ -724,6 +1059,8 @@ func _spawn_item(it: Dictionary) -> void:
 			n = Fan.new()
 		"booster":
 			n = Booster.new()
+		"market":
+			n = Tub.new()
 		"rocket":
 			n = Rocket.new()
 		"padlock":
@@ -808,7 +1145,7 @@ func _prewarm() -> void:
 		var f := Flyer.new()
 		f.kind = k
 		holder.add_child(f)
-	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new(), Ufo.new(), Astronaut.new(), Booster.new()]:
+	for n in [Airplane.new(), Rocket.new(), Chest.new(), Mimic.new(), Spring.new(), Pickup.new(), AmmoTag.new(), Fan.new(), Padlock.new(), Ufo.new(), Astronaut.new(), Booster.new(), Tub.new()]:
 		holder.add_child(n)
 	for i in 3:
 		await get_tree().process_frame
@@ -871,12 +1208,13 @@ func _build_laser() -> void:
 
 
 func _update_laser() -> void:
-	_laser.visible = power_on("laser") and state != State.OVER
+	var reach := Config.POWER_LASER_RANGE if power_on("laser") else (Config.SIGHT_RANGE if perks.has("sight") else 0.0)
+	_laser.visible = reach > 0.0 and state != State.OVER and state != State.MARKET
 	if not _laser.visible:
 		return
 	var from := gun.muzzle_position()
 	var d := gun.barrel_dir()
-	var to := from + Vector3(d.x, d.y, 0.0) * Config.POWER_LASER_RANGE
+	var to := from + Vector3(d.x, d.y, 0.0) * reach
 	var hit := _raycast(from, to)
 	if not hit.is_empty():
 		to = hit.position
@@ -892,25 +1230,6 @@ func _unshaded(color: Color) -> StandardMaterial3D:
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.albedo_color = color
 	return m
-
-
-func _fx_tracer(a: Vector3, b: Vector3) -> void:
-	var length := a.distance_to(b)
-	if length < 0.01:
-		return
-	var m := _unshaded(Color(1.0, 0.95, 0.69, 0.9))
-	var bm := BoxMesh.new()
-	bm.size = Vector3(length, 0.035, 0.035)
-	bm.material = m
-	var mi := MeshInstance3D.new()
-	mi.mesh = bm
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
-	mi.global_position = (a + b) / 2.0
-	mi.rotation.z = atan2(b.y - a.y, b.x - a.x)
-	var tw := create_tween()
-	tw.tween_property(m, "albedo_color:a", 0.0, 0.1)
-	tw.tween_callback(mi.queue_free)
 
 
 func _fx_flash(at: Vector3) -> void:

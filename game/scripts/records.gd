@@ -34,6 +34,13 @@ static func stat(key: String) -> int:
 	return int(stats.get(key, 0))
 
 
+## Pone un contador de toda la vida (mejoras del mercado, etc.) y lo guarda.
+static func set_stat(key: String, value: int) -> void:
+	load_saved()
+	stats[key] = value
+	_save()
+
+
 ## Suma 1 a un contador de toda la vida y lo guarda en el teléfono.
 static func bump(key: String) -> int:
 	load_saved()

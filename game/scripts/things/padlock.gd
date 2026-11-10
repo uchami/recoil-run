@@ -1,13 +1,11 @@
 class_name Padlock
 extends Area3D
-## Candado que flota. Tiene 4 balas (4 tiros para matarlo, +4).
+## Candado que flota. Muere de un tiro (+3).
 ## Si te toca se te pega al arma: pesa el doble por unos segundos.
 
 var game: Node
-var ammo := Config.PADLOCK_AMMO
 var alive := true
 var _vis: Node3D
-var _tag: AmmoTag
 var _anchor := Vector3.ZERO
 var _t := randf() * TAU
 var _fall_v := 0.0
@@ -25,22 +23,13 @@ func _ready() -> void:
 	_anchor = global_position
 	_vis = Padlock.build_mesh(1.0)
 	add_child(_vis)
-	_tag = AmmoTag.new()
-	_tag.position = Vector3(0, 1.1, 0)
-	add_child(_tag)
-	_tag.set_count(ammo)
 	body_entered.connect(_on_body)
 
 
 func shot(_hit: Dictionary, _dir: Vector2) -> Dictionary:
 	if not alive:
 		return {"result": "none", "reward": 0}
-	ammo -= 1
-	_tag.set_count(ammo)
-	if ammo > 0:
-		return {"result": "plane_hit", "reward": 0} # clank metálico
 	alive = false
-	_tag.visible = false
 	set_deferred("monitoring", false)
 	set_deferred("collision_layer", 0)
 	get_tree().create_timer(3.0).timeout.connect(queue_free)

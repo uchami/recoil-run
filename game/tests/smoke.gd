@@ -53,6 +53,15 @@ func _run() -> void:
 	await test_chest()
 	await test_safe_chests()
 	await test_trap_chest()
+	await test_chest_lost()
+	await test_bullets_fly()
+	await test_unseen_rule()
+	await test_pierce()
+	await test_market()
+	await test_perks()
+	await test_pierce_slowmo()
+	await test_arrows()
+	test_market_in_level()
 	await test_power_streak()
 	await test_powers()
 	await test_hurt_without_ammo()
@@ -162,6 +171,7 @@ func test_headshot() -> void:
 	var m := await spawn()
 	var e: Enemy = m.enemies[0]
 	await shoot_from_start(m, aim_angle(m, e.global_position + Vector3(0, Enemy.HEAD_Y, 0)))
+	await bullets_done(m)
 	check(not e.alive, "personaje muerto")
 	check(m.headshots == 1, "cuenta headshot")
 	check(m.ammo == Config.START_AMMO - 1 + Config.HEADSHOT_REWARD, "balas +%d (%d)" % [Config.HEADSHOT_REWARD, m.ammo])
@@ -179,6 +189,7 @@ func test_body_kill() -> void:
 	var m := await spawn()
 	var e: Enemy = m.enemies[0]
 	await shoot_from_start(m, aim_angle(m, e.global_position + Vector3(0, 0.8, 0)))
+	await bullets_done(m)
 	check(not e.alive, "personaje muerto")
 	check(m.headshots == 0, "no es headshot")
 	check(m.ammo == Config.START_AMMO - 1 + Config.KILL_REWARD, "balas +%d (%d)" % [Config.KILL_REWARD, m.ammo])
@@ -443,11 +454,20 @@ func clear_world(m: Node) -> void:
 	m.entities.clear()
 
 
-func put(m: Node, type: String, x: float, y := 0.0) -> Node:
+## seen: ya apareció en pantalla (si no, la regla del motor no deja matarlo).
+func put(m: Node, type: String, x: float, y := 0.0, seen := true) -> Node:
 	m._spawn_item({"type": type, "x": x, "y": y})
-	if type in ["plain", "sword", "shield", "helmet"]:
-		return m.enemies[-1]
-	return m.entities[-1]
+	var n: Node = m.enemies[-1] if type in ["plain", "sword", "shield", "helmet"] else m.entities[-1]
+	if seen:
+		n.set_meta("seen", true)
+	return n
+
+
+## Espera a que terminen las balas en vuelo (las balas no son instantáneas).
+func bullets_done(m: Node) -> void:
+	var t0 := Time.get_ticks_msec()
+	while not m.bullets.is_empty() and Time.get_ticks_msec() - t0 < 3000:
+		await physics_frame
 
 
 ## Pone el arma quieta en pos apuntando a target y dispara en el mismo paso.
@@ -462,6 +482,7 @@ func fire_at(m: Node, pos: Vector2, target: Vector3) -> void:
 	m._queued_shots = 1
 	await physics_frame
 	await physics_frame
+	await bullets_done(m)
 
 
 func test_sounds() -> void:
@@ -645,8 +666,12 @@ func test_hawk() -> void:
 	await despawn(m)
 
 
+func chest_lock(c: Chest) -> Vector3:
+	return c.global_position + Chest.LOCK_POS
+
+
 func test_chest() -> void:
-	print("cofre")
+	print("cofre con candado")
 	var outcomes := {"balas": 0, "poder": 0}
 	for k in 8:
 		var m := await spawn()
@@ -654,19 +679,17 @@ func test_chest() -> void:
 		await physics_frame
 		var c: Chest = put(m, "chest", 6.0)
 		await physics_frame
-		var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
-		var before := 0
-		for i in Config.CHEST_AMMO:
-			if i == Config.CHEST_AMMO - 1:
-				before = m.ammo - 1
-				m.last_power = ""
-			await fire_at(m, Vector2(-1.0, 1.5), center)
-			if i == 0 and k == 0:
-				check(c.ammo == Config.CHEST_AMMO - 1, "cada tiro le saca una bala (%d)" % c.ammo)
 		if k == 0:
-			check(c.ammo == 0, "muere con %d tiros" % Config.CHEST_AMMO)
-			check(not m.entities.any(func(n): return is_instance_valid(n) and n is Mimic), "no es trampa")
+			await fire_at(m, Vector2(-1.0, 3.4), c.global_position + Vector3(0, 3.4, 0)) # a la madera
+			check(not c.opened and is_instance_valid(c), "un tiro al cofre no le hace nada")
 			check(Chest.world_size().x >= 4.9, "es grande (%.1f m de ancho)" % Chest.world_size().x)
+		var before: int = m.ammo - 1
+		m.last_power = ""
+		var lock := chest_lock(c)
+		await fire_at(m, Vector2(-1.0, lock.y - 0.1), lock)
+		if k == 0:
+			check(c.opened, "un tiro al candado lo abre")
+			check(not m.entities.any(func(n): return is_instance_valid(n) and n is Mimic), "no es trampa")
 		if m.last_power != "":
 			outcomes.poder += 1
 		elif m.ammo == before + Config.CHEST_REWARD:
@@ -675,6 +698,28 @@ func test_chest() -> void:
 		await despawn(m)
 	check(outcomes.balas + outcomes.poder == 8, "siempre da algo: %s" % str(outcomes))
 	check(outcomes.balas > 0 and outcomes.poder > 0, "a veces balas, a veces poder")
+
+
+func test_chest_lost() -> void:
+	print("cofre perdido (te chocaste el candado)")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var c: Chest = put(m, "chest", 6.0)
+	await physics_frame
+	var lock := chest_lock(c)
+	await place_gun(m, Vector2(lock.x - 0.1, lock.y), 0.0)
+	for i in 30:
+		if c.lost:
+			break
+		m.gun.global_position = Vector3(lock.x - 0.1, lock.y, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(c.lost, "el cofre se pierde")
+	check(m.power_on("locked") and m.gun.get_node_or_null("Lock") != null, "el candado se te pega (pesás más)")
+	await wait_s(1.5)
+	check(not is_instance_valid(c), "el cofre se enterró")
+	await despawn(m)
 
 
 func test_safe_chests() -> void:
@@ -687,9 +732,8 @@ func test_safe_chests() -> void:
 		await physics_frame
 		var c: Chest = put(m, "trap", 6.0) # todos trampa...
 		await physics_frame
-		var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
-		for i in Config.CHEST_AMMO:
-			await fire_at(m, Vector2(-1.0, 1.5), center)
+		var lock := chest_lock(c)
+		await fire_at(m, Vector2(-1.0, lock.y - 0.1), lock)
 		await physics_frame
 		var opened: bool = m.entities.any(func(n): return is_instance_valid(n) and n is Mimic)
 		if k < Config.SAFE_CHESTS:
@@ -713,17 +757,16 @@ func test_trap_chest() -> void:
 	await physics_frame
 	var c: Chest = put(m, "trap", 8.0)
 	await physics_frame
-	var center := c.global_position + Vector3(0, Chest.world_size().y * 0.5, 0)
-	for i in Config.CHEST_AMMO:
-		await fire_at(m, Vector2(-1.0, 1.5), center)
+	var lock := chest_lock(c)
+	await fire_at(m, Vector2(-1.0, lock.y - 0.1), lock)
 	await physics_frame
 	var mimics: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Mimic)
-	check(mimics.size() == 1, "al morir abre la boca (mimic)")
+	check(mimics.size() == 1, "al abrirlo abre la boca (mimic)")
 	if mimics.is_empty():
 		await despawn(m)
 		return
 	var mm: Mimic = mimics[0]
-	check(mm.ammo == Config.MIMIC_AMMO, "vuelve con %d balas" % mm.ammo)
+	mm.set_meta("seen", true)
 	var d0: float = mm.global_position.distance_to(m.gun.global_position)
 	m.ammo = 6
 	var hold: Vector3 = m.gun.global_position
@@ -737,13 +780,21 @@ func test_trap_chest() -> void:
 	while m.ammo == 6 and Time.get_ticks_msec() - t0 < 4000:
 		await physics_frame
 	check(m.ammo == 6 - Config.MIMIC_DAMAGE, "si te toca: -%d balas (%d)" % [Config.MIMIC_DAMAGE, m.ammo])
-	# matarlo: 2 tiros, te da 5
+	# matarlo: un tiro a la boca, te da 5; en la madera rebota
 	m.ammo = 10
 	m._hurt_cd = 99.0
-	for i in Config.MIMIC_AMMO:
-		await fire_at(m, Vector2(-6.0, 1.5), mm.global_position + Vector3(0, 1.5, 0))
-	check(not mm.alive, "muere con %d tiros" % Config.MIMIC_AMMO)
-	check(m.ammo == 10 - Config.MIMIC_AMMO + Config.MIMIC_REWARD, "te da %d balas (%d)" % [Config.MIMIC_REWARD, m.ammo])
+	m.gun.global_position = mm.global_position + Vector3(-9.0, 0, 0)
+	mm.global_position.y = 0.0
+	await physics_frame
+	mm.set_physics_process(false) # quieto para apuntar justo
+	mm._set_facing(-1.0)
+	await physics_frame
+	var gp := Vector2(mm.global_position.x - 9.0, 1.0)
+	await fire_at(m, gp, mm.global_position + Vector3(-1.0, 0.8, 0))
+	check(mm.alive and m.ammo == 9, "tiro a la madera (abajo): no le hace nada")
+	await fire_at(m, Vector2(gp.x, 3.0), mm.mouth_position())
+	check(not mm.alive, "tiro a la boca: muere")
+	check(m.ammo == 8 + Config.MIMIC_REWARD, "te da %d balas (%d)" % [Config.MIMIC_REWARD, m.ammo])
 	await despawn(m)
 
 
@@ -854,6 +905,22 @@ func test_special_levels() -> void:
 		var after := bs.filter(func(b): return b.special == "" and b.x0 >= sb[-1].x1)
 		if not after.is_empty():
 			check(absf(after[0].top - sb[-1].top) <= Level.MAX_STEP_DOWN + 0.1, "%s: después sigue desde esa altura (%.1f -> %.1f)" % [sp, sb[-1].top, after[0].top])
+	# los primeros 300 m: uno cada 100 m, cortitos, uno de cada tipo
+	var lv0 := Level.new(11)
+	var all := [lv0.next_block()]
+	while all[-1].x1 < 900.0:
+		all.append(lv0.next_block())
+	var starts := []
+	var kinds := {}
+	for i in range(1, all.size()):
+		if all[i].special != "" and all[i - 1].special != all[i].special:
+			starts.append(all[i].x0 if all[i].special != "air" else all[i - 1].x1)
+			kinds[all[i].special] = true
+	check(starts.size() >= 3, "hay niveles especiales temprano (%s)" % str(starts.map(func(x): return roundi(x))))
+	if starts.size() >= 3:
+		check(absf(starts[0] - 100.0) < 15.0 and absf(starts[1] - 200.0) < 15.0 and absf(starts[2] - 300.0) < 15.0, "a los 100, 200 y 300 m (%d, %d, %d)" % [starts[0], starts[1], starts[2]])
+		check(kinds.size() == 3, "uno de cada tipo (%s)" % str(kinds.keys()))
+	check(starts.size() < 4 or starts[3] > 800.0, "después, cada %dm" % Level.SPECIAL_EVERY)
 	# probar nivel desde AJUSTES
 	Level.debug_special = "air"
 	var m := await spawn()
@@ -880,6 +947,7 @@ func test_altitude_zones() -> void:
 	check(counts[5.0].keys().all(func(k): return k in ["hawk", "bat"]), "abajo: halcones y murciélagos %s" % str(counts[5.0]))
 	check(counts[30.0].has("plane") and counts[30.0].has("hawk") and not counts[30.0].has("rocket"), "alto: aviones con halcones %s" % str(counts[30.0]))
 	check(counts[60.0].has("rocket") and counts[60.0].has("plane") and not counts[60.0].has("hawk") and not counts[60.0].has("bat"), "más alto: cohetes con aviones, sin pájaros %s" % str(counts[60.0]))
+	check(counts[60.0].get("astronaut", 0) > counts[60.0].get("rocket", 0), "donde hay cohetes hay astronautas, y muchos %s" % str(counts[60.0]))
 	check(counts[100.0].has("ufo") and counts[100.0].has("astronaut") and counts[100.0].has("rocket") and not counts[100.0].has("plane"), "más alto todavía: ovnis, astronautas y cohetes, sin aviones %s" % str(counts[100.0]))
 	# cielo de noche
 	await place_gun(m, Vector2(0.0, 2.0), 0.0)
@@ -905,20 +973,24 @@ func test_plane() -> void:
 	var pl: Airplane = put(m, "plane", 12.0, 3.0)
 	m.ammo = 10
 	m._hurt_cd = 99.0
-	for i in Config.PLANE_AMMO:
-		await fire_at(m, Vector2(0.0, 3.0), pl.global_position)
-	check(not pl.alive, "lo derribás con %d tiros" % Config.PLANE_AMMO)
-	check(m.ammo == 10 - Config.PLANE_AMMO + Config.PLANE_REWARD, "te da %d balas (%d)" % [Config.PLANE_REWARD, m.ammo])
+	await fire_at(m, Vector2(8.0, 0.5), pl.global_position + Vector3(0.5, 0, 0)) # de abajo, a la panza
+	check(pl.alive, "a la panza: rebota")
+	check("clank" in m.sfx.played, "suena clank")
+	m.ammo = 10
+	await fire_at(m, Vector2(0.0, pl.global_position.y - 0.1), pl.global_position + Vector3(Airplane.PROP_X, 0, 0))
+	check(not pl.alive, "un tiro a la hélice lo derriba")
+	check(m.ammo == 10 - 1 + Config.PLANE_REWARD, "te da %d balas (%d)" % [Config.PLANE_REWARD, m.ammo])
 	check("explosion" in m.sfx.played, "explota")
+	check(Config.PLANE_SPEED <= 4.0, "vuela despacio (%.1f m/s)" % Config.PLANE_SPEED)
 	await despawn(m)
 	m = await spawn()
 	clear_world(m)
 	await physics_frame
-	pl = put(m, "plane", 6.0, 3.0)
+	pl = put(m, "plane", 4.0, 3.0)
 	m.ammo = 10
 	await place_gun(m, Vector2(0.0, 3.0), 0.0)
 	var t0 := Time.get_ticks_msec()
-	while m.ammo == 10 and Time.get_ticks_msec() - t0 < 2500:
+	while m.ammo == 10 and Time.get_ticks_msec() - t0 < 3000:
 		m.gun.global_position = Vector3(0.0, 3.0, 0.0)
 		m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
@@ -1126,10 +1198,9 @@ func test_padlock() -> void:
 	await physics_frame
 	var pl: Padlock = put(m, "padlock", 8.0, 3.0)
 	m.ammo = 10
-	for i in Config.PADLOCK_AMMO:
-		await fire_at(m, Vector2(0.0, 3.0), pl.global_position)
-	check(not pl.alive, "muere con %d tiros" % Config.PADLOCK_AMMO)
-	check(m.ammo == 10 - Config.PADLOCK_AMMO + Config.PADLOCK_REWARD, "te da %d balas (%d)" % [Config.PADLOCK_REWARD, m.ammo])
+	await fire_at(m, Vector2(0.0, 3.0), pl.global_position)
+	check(not pl.alive, "muere de un tiro")
+	check(m.ammo == 10 - 1 + Config.PADLOCK_REWARD, "te da %d balas (%d)" % [Config.PADLOCK_REWARD, m.ammo])
 	await despawn(m)
 	# si te toca: se pega y pesás más
 	m = await spawn()
@@ -1185,9 +1256,49 @@ func test_ufo() -> void:
 		m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
 	check(m.ammo == 20, "si te movés durante el aviso, lo esquivás (%d)" % m.ammo)
-	for i in Config.UFO_AMMO:
-		await fire_at(m, Vector2(0.0, 3.0), u.global_position)
-	check(not u.alive, "muere con %d tiros" % Config.UFO_AMMO)
+	u.set_physics_process(false) # quieto para apuntar justo
+	m.ammo = 20
+	var gp := Vector2(u.global_position.x - 7.0, u.global_position.y - 0.4)
+	await fire_at(m, gp, u.global_position + Vector3(0, -0.05, 0))
+	check(u.alive, "tiro al plato: rebota")
+	await fire_at(m, Vector2(gp.x, gp.y + 0.6), u.dome_position())
+	check(not u.alive, "tiro a la cúpula: muere de un tiro")
+	check(m.ammo == 18 + Config.UFO_REWARD, "te da %d balas (%d)" % [Config.UFO_REWARD, m.ammo])
+	await despawn(m)
+	# te persigue: si avanzás, te sigue
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	u = put(m, "ufo", 8.0, 6.0)
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	m.powers.untouchable = 99.0
+	var gx := 0.0
+	for i in 360: # 3 s avanzando a 8 m/s
+		gx += 8.0 / 120.0
+		m.gun.global_position = Vector3(gx, 3.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	var d: float = u.global_position.distance_to(m.gun.global_position)
+	check(u.global_position.x > 14.0 and d < 12.0, "avanzaste 24 m y te siguió (x=%.1f, a %.1f m)" % [u.global_position.x, d])
+	m.gun.global_position = Vector3(gx, 300.0, 0.0)
+	await physics_frame
+	await physics_frame
+	check(u.leaving, "si lo dejás muy lejos, se va")
+	# no más de UFO_MAX a la vez
+	clear_world(m)
+	for i in Config.UFO_MAX:
+		put(m, "ufo", gx + 10.0 + i * 3.0, 90.0)
+	m.state = m.State.PLAYING
+	var types := {}
+	for i in 40:
+		m._sky_progress = 999.0
+		m._sky_last = m.gun.global_position
+		m.gun.global_position = Vector3(gx, 95.0, 0.0)
+		var n0: int = m.entities.size()
+		m._sky_spawner(m.gun.global_position)
+		for e in m.entities.slice(n0):
+			types[e.get_class() if e.get_script() == null else e.get_script().get_global_name()] = true
+	check(not types.has("Ufo"), "con %d ovnis persiguiéndote no aparecen más %s" % [Config.UFO_MAX, str(types.keys())])
 	await despawn(m)
 
 
@@ -1197,11 +1308,35 @@ func test_astronaut() -> void:
 	clear_world(m)
 	await physics_frame
 	var a: Astronaut = put(m, "astronaut", 8.0, 3.0)
+	a._spin = 0.0
 	m.ammo = 10
-	for i in Config.ASTRONAUT_AMMO:
-		await fire_at(m, Vector2(0.0, 3.0), a.global_position)
-	check(not a.alive, "muere con %d tiros" % Config.ASTRONAUT_AMMO)
-	check(m.ammo == 10 - Config.ASTRONAUT_AMMO + Config.ASTRONAUT_REWARD, "te da %d (%d)" % [Config.ASTRONAUT_REWARD, m.ammo])
+	await fire_at(m, Vector2(0.0, 2.8), a.global_position + Vector3(0, -0.3, 0))
+	check(not a.alive, "muere de un tiro (al cuerpo)")
+	check(m.ammo == 10 - 1 + Config.KILL_REWARD and m.headshots == 0, "al cuerpo: +%d, como los del piso (%d)" % [Config.KILL_REWARD, m.ammo])
+	a = put(m, "astronaut", 8.0, 6.0)
+	a._spin = 0.0
+	m.ammo = 10
+	var head := a.head_position()
+	await fire_at(m, Vector2(0.0, head.y - 0.1), head)
+	check(not a.alive and m.headshots == 1, "al casco: headshot")
+	check(m.ammo == 10 - 1 + Config.HEADSHOT_REWARD, "headshot: +%d (%d)" % [Config.HEADSHOT_REWARD, m.ammo])
+	Engine.time_scale = 1.0
+	m._slowmo_left = 0.0
+	await despawn(m)
+	# vienen en grupito
+	m = await spawn()
+	clear_world(m)
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var before: int = m.entities.size()
+	seed(3)
+	for i in 30:
+		m._sky_progress = 999.0
+		m._sky_last = Vector3.ZERO
+		var n0: int = m.entities.size()
+		m._sky_spawner(Vector3(0.0, Config.ROCKET_ALT + 5.0, 0.0))
+		if m.entities.size() - n0 > 1:
+			break
+	check(m.entities.size() - before > 1, "a la altura de los cohetes ya hay astronautas, en grupito")
 	await despawn(m)
 	m = await spawn()
 	clear_world(m)
@@ -1258,4 +1393,272 @@ func test_booster() -> void:
 	check(peak < Config.BOOSTER_DROP_ALT + 8.0, "y te suelta ahí arriba (no sigue)")
 	check(spawned == 0, "viaje limpio (%d bichos en el camino)" % spawned)
 	check(m.state == m.State.PLAYING, "sigue la partida")
+	await despawn(m)
+
+
+# --- balas que vuelan, regla de pantalla, penetrantes, mercado ---
+
+func test_bullets_fly() -> void:
+	print("las balas vuelan (no son instantáneas)")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var e: Enemy = put(m, "plain", 7.0)
+	await physics_frame
+	await place_gun(m, Vector2(-1.0, 0.9), 0.0)
+	var g: Gun = m.gun
+	var target := e.global_position + Vector3(0, 0.8, 0)
+	g.global_transform = Transform3D(Basis(Vector3.BACK, atan2(target.y - (0.9 + Gun.MUZZLE.y), target.x + 1.0)), Vector3(-1.0, 0.9, 0))
+	m._queued_shots = 1
+	await physics_frame
+	check(m.bullets.size() == 1, "sale una bala")
+	check(e.alive, "todavía no llegó")
+	var frames := 0
+	while not m.bullets.is_empty() and frames < 200:
+		await physics_frame
+		frames += 1
+	check(not e.alive, "llega y lo mata")
+	check(frames >= 8, "tarda en llegar (%d cuadros para ~8 m)" % frames)
+	await despawn(m)
+
+
+func test_unseen_rule() -> void:
+	print("no se puede matar lo que todavía no apareció en pantalla")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	var far: Padlock = put(m, "padlock", 30.0, 3.0, false) # fuera de pantalla
+	await process_frame
+	check(not m.camera.is_position_in_frustum(far.global_position), "está fuera de pantalla")
+	await fire_at(m, Vector2(0.0, 3.0), far.global_position)
+	check(far.alive, "la bala le pasa de largo")
+	var near: Padlock = put(m, "padlock", 5.0, 3.0, false) # en pantalla
+	await process_frame
+	await fire_at(m, Vector2(0.0, 3.0), near.global_position)
+	check(not near.alive, "lo que está en pantalla, sí")
+	await despawn(m)
+
+
+func test_pierce() -> void:
+	print("balas penetrantes")
+	for pierce in [false, true]:
+		var m := await spawn()
+		clear_world(m)
+		await physics_frame
+		m.pierce = pierce
+		var row := []
+		for i in 5:
+			row.append(put(m, "plain", 3.0 + i * 1.2))
+		await physics_frame
+		await fire_at(m, Vector2(0.0, 0.9), Vector3(8.0, 0.9, 0.0))
+		var dead: int = row.filter(func(e): return not e.alive).size()
+		if pierce:
+			check(dead == Config.PIERCE_KILLS, "penetrante: mata %d en fila de un tiro (%d)" % [Config.PIERCE_KILLS, dead])
+		else:
+			check(dead == 1, "normal: mata uno (%d)" % dead)
+		await despawn(m)
+
+
+func test_market() -> void:
+	print("mercado (bañadera con billetes)")
+	Records.reset()
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var tub: Tub = put(m, "market", 6.0, 0.0)
+	await physics_frame
+	await place_gun(m, Vector2(6.0, 1.0), 0.0) # adentro
+	var t0 := Time.get_ticks_msec()
+	var early := -1
+	while m.state == m.State.PLAYING and Time.get_ticks_msec() - t0 < 3000:
+		if early < 0 and Time.get_ticks_msec() - t0 > 600:
+			early = 1 if m.state == m.State.MARKET else 0
+		await physics_frame
+	check(early == 0, "no entra de una: hay que quedarse")
+	check(m.state == m.State.MARKET and tub.used, "quedándose >1 s adentro, entrás al mercado")
+	check(m.hud._market.visible, "se ve el mercado")
+	check(m.market_offers.size() == Config.MARKET_OFFERS, "ofrece %d mejoras al azar %s" % [Config.MARKET_OFFERS, str(m.market_offers)])
+	await process_frame
+	var cards: int = m.hud._market_box.find_children("*", "MarketIcon", true, false).size()
+	check(cards == Config.MARKET_OFFERS, "se ven %d tarjetas con dibujo (%d)" % [Config.MARKET_OFFERS, cards])
+	var other: String = m.market_offers[1]
+	var btn: Button = m.hud._market_box.find_children("*", "Button", true, false)[1]
+	btn.pressed.emit()
+	await process_frame
+	check(m.hud._market_sel == other, "tocar una tarjeta la elige (%s)" % m.hud._market_sel)
+	var seen_offers := {}
+	for i in 30:
+		m._roll_offers()
+		for o in m.market_offers:
+			seen_offers[o] = true
+	check(seen_offers.size() == m.MARKET_ITEMS.size(), "con varias visitas aparecen todas %s" % str(seen_offers.keys()))
+	m.ammo = 50
+	check(not m.can_buy("pierce"), "con 50 balas no alcanza para penetrantes (siempre te queda 1)")
+	m.ammo = 51
+	m._market_buy("pierce")
+	check(m.ammo == 1 and m.pierce and Records.stat("pierce_runs") == Config.PERK_RUNS, "penetrantes: -50, por %d partidas" % Config.PERK_RUNS)
+	check(m.price("extra_start") == roundi(Config.EXTRA_START_COST * (1.0 + Config.MARKET_PRICE_STEP)), "después de comprar, todo sale más caro (%d)" % m.price("extra_start"))
+	m._market_buy("extra_start")
+	check(m.ammo == 1, "no se puede gastar la última")
+	var p2: int = m.price("extra_start")
+	m.ammo = p2 + 1
+	m._market_buy("extra_start")
+	check(m.ammo == 1 and Records.stat("extra_start") == 1, "+1 bala al inicio: -%d" % p2)
+	m.hud.market_close.emit()
+	check(m.state == m.State.READY and not m.hud._market.visible, "al salir flotás esperando el primer tiro")
+	await wait_s(0.3)
+	var y: float = m.gun.global_position.y
+	check(y > tub.global_position.y + 2.0 and m.gun.freeze, "flotando arriba de la bañadera")
+	m._hurt_cd = 0.0
+	m.hurt(1, Vector3.ZERO)
+	check(m.ammo == 1, "inmune mientras flotás")
+	m._queued_shots = 1
+	await physics_frame
+	await physics_frame
+	check(m.state == m.State.PLAYING and not m.gun.freeze, "el primer tiro te suelta")
+	m._game_over("TEST")
+	check(Records.stat("pierce_runs") == Config.PERK_RUNS - 1, "la partida cuenta para las penetrantes")
+	await despawn(m)
+	m = await spawn()
+	check(m.ammo == Config.START_AMMO + 1, "la próxima partida arrancás con %d" % m.ammo)
+	check(m.pierce, "y con balas penetrantes")
+	check(m.bought_this_run == 0 and m.price("pierce") == Config.PIERCE_COST, "en otra partida los precios vuelven a la base")
+	await despawn(m)
+	Records.set_stat("extra_start", 99)
+	m = await spawn()
+	m.ammo = 500
+	check(not m.can_buy("extra_start"), "balas al inicio: hasta %d" % (Config.START_AMMO + Config.MAX_EXTRA_START))
+	await despawn(m)
+	Records.reset()
+
+
+func test_market_in_level() -> void:
+	print("mercado en el piso")
+	var xs := []
+	for sd in [7, 8, 9]:
+		var lv := Level.new(sd)
+		var bs := [lv.next_block()]
+		while bs[-1].x1 < 3000.0:
+			bs.append(lv.next_block())
+		for b in bs:
+			for it in b.items:
+				if it.type == "market":
+					xs.append(it.x)
+					check(b.items.size() == 1, "la bañadera va sola en su bloque")
+	check(xs.size() >= 3, "aparecen bañaderas (%d en 3 x 3km)" % xs.size())
+	check(xs.all(func(x): return x > Config.MARKET_FROM), "solo pasados los %dm" % Config.MARKET_FROM)
+
+
+func test_perks() -> void:
+	print("mejoras del mercado")
+	Records.reset()
+	# rebote: la bala tirada al piso rebota y mata
+	for ric in [false, true]:
+		var m := await spawn()
+		clear_world(m)
+		await physics_frame
+		if ric:
+			m.perks["ricochet"] = true
+		var e: Enemy = put(m, "plain", 6.0)
+		await physics_frame
+		# tiro hacia el piso a mitad de camino: rebota hacia el enemigo
+		await fire_at(m, Vector2(0.0, 1.6), Vector3(3.0, 0.0, 0.0))
+		if ric:
+			check(not e.alive, "balas que rebotan: rebota en el piso y mata")
+		else:
+			check(e.alive, "sin la mejora, la bala se queda en el piso")
+		await despawn(m)
+	# mirilla: línea corta siempre
+	var m := await spawn()
+	check(not m._laser.visible, "sin mirilla no hay línea")
+	m.perks["sight"] = true
+	await process_frame
+	await process_frame
+	check(m._laser.visible and m._laser.global_transform.basis.x.length() <= Config.SIGHT_RANGE + 0.01, "mirilla: línea corta (%.1f m)" % m._laser.global_transform.basis.x.length())
+	# cámara lenta larga
+	m.perks["slowmo"] = true
+	await place_gun(m, Vector2(0.0, 1.0), 0.0)
+	m._on_hit({"result": "headshot", "reward": 0}, Vector3.ZERO)
+	check(is_equal_approx(m._slowmo_left, Config.SLOWMO_DURATION * Config.LONG_SLOWMO), "cámara lenta larga: headshot x%.0f" % Config.LONG_SLOWMO)
+	await despawn(m)
+	# seguro de vida
+	m = await spawn()
+	Records.set_stat("insurance", 1)
+	m._refresh_perks()
+	await place_gun(m, Vector2(0.0, 1.0), 0.0)
+	m.ammo = 0
+	m._hurt_cd = 0.0
+	m.hurt(1, Vector3.ZERO)
+	check(m.state == m.State.READY and m.ammo == Config.INSURANCE_AMMO, "seguro de vida: en vez de perder, flotás con %d balas" % m.ammo)
+	check(Records.stat("insurance") == 0, "se usa una vez")
+	m._queued_shots = 1
+	await physics_frame
+	await physics_frame
+	check(m.state == m.State.PLAYING, "y el primer tiro te suelta")
+	m._game_over("TEST")
+	check(m.state == m.State.OVER, "la segunda vez perdés")
+	await despawn(m)
+	# te caíste en un hueco: revivís del otro lado, arriba del piso
+	Records.set_stat("insurance", 1)
+	m = await spawn()
+	await place_gun(m, Vector2(0.0, 1.0), 0.0)
+	m.gun.global_position = Vector3(5.0, -30.0, 0.0)
+	await process_frame
+	await physics_frame
+	var fy: float = m._float_pos.y
+	check(m.state == m.State.READY and fy > Level.top_at(m.blocks, m._float_pos.x), "caído en un hueco: revivís arriba del piso (y=%.1f)" % fy)
+	await despawn(m)
+	# las mejoras con duración cuentan las partidas
+	Records.reset()
+	Records.set_stat("ricochet_runs", 2)
+	m = await spawn()
+	check(m.perks.has("ricochet") and not m.perks.has("pierce"), "arrancás con las mejoras que te quedan %s" % str(m.perks.keys()))
+	m._game_over("TEST")
+	check(Records.stat("ricochet_runs") == 1, "y la partida cuenta")
+	await despawn(m)
+	Records.reset()
+
+
+func test_pierce_slowmo() -> void:
+	print("penetrante x3: cámara lenta")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	m.pierce = true
+	for i in 3:
+		put(m, "plain", 3.0 + i * 1.2)
+	await physics_frame
+	var slow := false
+	m.state = m.State.PLAYING
+	m.hud.hide_start()
+	m.gun.global_transform = Transform3D(Basis(Vector3.BACK, atan2(0.9 - (0.9 + Gun.MUZZLE.y), 8.0)), Vector3(0.0, 0.9, 0))
+	m._queued_shots = 1
+	await physics_frame
+	await physics_frame
+	var t0 := Time.get_ticks_msec()
+	while not m.bullets.is_empty() and Time.get_ticks_msec() - t0 < 4000:
+		slow = slow or Engine.time_scale < 0.5
+		await physics_frame
+	check(slow and m.kills == 3, "matar 3 de un tiro activa la cámara lenta (kills %d)" % m.kills)
+	await despawn(m)
+
+
+func test_arrows() -> void:
+	print("flechas en el borde")
+	var m := await spawn()
+	clear_world(m)
+	await place_gun(m, Vector2(0.0, 2.0), 0.0)
+	m.gun.freeze = true
+	var r: Node3D = put(m, "rocket", 18.0, 3.0, false)
+	await process_frame
+	await process_frame
+	check(not m.camera.is_position_in_frustum(r.global_position) and m.hud.visible_arrows() == 1, "un cohete afuera de la pantalla: flecha (%d)" % m.hud.visible_arrows())
+	r.global_position = Vector3(3.0, 2.5, 0.0)
+	await process_frame
+	await process_frame
+	check(m.hud.visible_arrows() == 0, "cuando entra en pantalla, la flecha se va")
+	r.global_position = Vector3(80.0, 2.5, 0.0)
+	await process_frame
+	check(m.hud.visible_arrows() == 0, "muy lejos, sin flecha")
 	await despawn(m)
