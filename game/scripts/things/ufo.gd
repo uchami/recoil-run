@@ -1,8 +1,10 @@
 class_name Ufo
 extends Area3D
-## Ovni: te persigue (si avanzás, te sigue y te busca) y cada tanto te apunta.
-## Primero se ve una línea finita (el aviso) hacia donde estabas; a los 0.7 s
-## dispara un láser verde por esa línea. Si te da: -5 balas.
+## Ovni: te persigue (te sigue el ritmo y se pone adelante tuyo, a la vista) y
+## cada tanto te apunta. Solo dispara si está en pantalla y cerca. Primero se ve
+## una línea finita (el aviso) hacia donde estabas; a los 0.7 s dispara un láser
+## verde por esa línea. Si te da: -5 balas. Después de recorrer UFO_CHASE_DIST
+## desde donde apareció, se rinde y se va.
 ## Se mata de un tiro a la cúpula (+5); en el plato las balas rebotan.
 
 const DOME_Y := 0.32
@@ -14,6 +16,8 @@ var leaving := false # te perdió: se va para arriba
 var _vis: Node3D
 var _dome_cs: CollisionShape3D
 var _anchor := Vector3.ZERO
+var _spawn := Vector3.ZERO
+var _last_gun := Vector3.INF
 var _t := randf() * TAU
 var _cd := 1.0
 var _aim_left := -1.0
@@ -40,6 +44,7 @@ func _ready() -> void:
 	_dome_cs.position.y = DOME_Y
 	add_child(_dome_cs)
 	_anchor = global_position
+	_spawn = global_position
 	_build_mesh()
 	_beam = MeshInstance3D.new()
 	var bm := BoxMesh.new()
@@ -82,6 +87,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if game != null:
 		_chase(game.gun.global_position, delta)
+		if leaving:
+			return
 	global_position = _anchor + Vector3(sin(_t * 0.7) * 1.0, sin(_t * 1.4) * 0.3, 0.0)
 	if game == null or game.state != game.State.PLAYING:
 		_beam.visible = false
@@ -94,7 +101,7 @@ func _physics_process(delta: float) -> void:
 			_fire(gun)
 		return
 	_cd -= delta
-	if _cd <= 0.0 and global_position.distance_to(gun.global_position) < Config.UFO_SIGHT:
+	if _cd <= 0.0 and global_position.distance_to(gun.global_position) < Config.UFO_SIGHT and _on_screen():
 		_cd = Config.UFO_FIRE_EVERY
 		_aim_left = Config.UFO_AIM_TIME
 		var dir := (gun.global_position - global_position)
@@ -102,21 +109,39 @@ func _physics_process(delta: float) -> void:
 		_aim_to = global_position + dir.normalized() * Config.UFO_SIGHT * 1.6
 
 
-## Te sigue: se pone al costado tuyo (del lado en que está), un poco arriba.
+## Te sigue: acompaña tu movimiento (hasta UFO_MAX_SPEED) y se acomoda despacio
+## adelante tuyo, un poco arriba, donde la cámara lo muestra.
 func _chase(gun_pos: Vector3, delta: float) -> void:
 	var to_gun := gun_pos - _anchor
 	to_gun.z = 0.0
-	if to_gun.length() > Config.UFO_GIVE_UP:
-		leaving = true
-		_beam.visible = false
-		get_tree().create_timer(4.0).timeout.connect(queue_free)
+	var run := _anchor - _spawn
+	run.z = 0.0
+	if to_gun.length() > Config.UFO_GIVE_UP or run.length() > Config.UFO_CHASE_DIST:
+		_leave()
 		return
-	var side := 1.0 if _anchor.x >= gun_pos.x else -1.0
-	var goal := gun_pos + Vector3(side * Config.UFO_HOVER.x, Config.UFO_HOVER.y, 0.0)
+	if _last_gun != Vector3.INF: # te sigue el ritmo
+		var moved := gun_pos - _last_gun
+		moved.z = 0.0
+		_anchor += moved.limit_length(Config.UFO_MAX_SPEED * delta)
+	_last_gun = gun_pos
+	var goal := gun_pos + Vector3(Config.UFO_HOVER.x, Config.UFO_HOVER.y, 0.0)
 	var to := goal - _anchor
 	to.z = 0.0
 	var speed := minf(Config.UFO_CHASE_SPEED, to.length() * 1.5)
 	_anchor += to.normalized() * minf(speed * delta, to.length())
+
+
+## Se rinde: deja de apuntar y se va para arriba.
+func _leave() -> void:
+	leaving = true
+	_aim_left = -1.0
+	_beam.visible = false
+	get_tree().create_timer(4.0).timeout.connect(queue_free)
+
+
+func _on_screen() -> bool:
+	var cam: Camera3D = game.get("camera")
+	return cam == null or cam.is_position_in_frustum(global_position)
 
 
 ## Dónde pegarle (para los tests y la demo).

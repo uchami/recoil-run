@@ -29,6 +29,7 @@ var _tune_panel: PanelContainer
 var _hurt_flash: ColorRect
 var _powers_box: VBoxContainer
 var _perks: Label
+var _special_info: Label
 var _market: Control
 var _market_box: VBoxContainer
 var _arrows: Control
@@ -97,6 +98,9 @@ void fragment() {
 	_perks = _label("", 28, Color("bff3ff"), 8) # mejoras del mercado que tenés
 	_perks.visible = false
 	_perks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_special_info = _label("", 40, GOLD, 12) # contador del nivel especial
+	_special_info.visible = false
+	top.add_child(_special_info)
 	top.add_child(_perks)
 
 	# Balas sobre el arma
@@ -319,7 +323,7 @@ func _build_tuning() -> void:
 			Tuning.set_value(key, v)
 			_refresh_tuning_labels()
 			tuning_changed.emit())
-	for spec in [["PROBAR NIVEL", test_level, [["↓ ESC.", "stairs_down"], ["↑ ESC.", "stairs_up"], ["AÉREO", "air"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"]]],
+	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["JEFE", "boss"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"]]],
 			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
 		var t := Label.new()
 		t.text = spec[0]
@@ -646,16 +650,17 @@ func set_powers(powers: Dictionary) -> void:
 
 
 ## "¡NIVEL ESPECIAL!" con confeti (en tiempo real, aunque haya slow-mo).
-func special_banner(reward: int) -> void:
+## Resultado de un nivel especial (o del jefe): título grande y las balas que te dio.
+func special_banner(title: String, reward: int) -> void:
 	var vp := get_viewport().get_visible_rect().size
 	var box := VBoxContainer.new()
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_theme_constant_override("separation", -10)
-	var title := _label("¡NIVEL ESPECIAL!", 78, Color("ffe14a"), 18)
-	var sub := _label("+%d BALAS" % reward, 54, Color.WHITE, 14)
-	box.add_child(title)
-	box.add_child(sub)
-	_confetti(Vector2(vp.x / 2.0, -20.0), vp.x) # antes que el cartel: queda por detrás
+	var good := reward > 0
+	box.add_child(_label(title, 84, Color("ffe14a") if good else Color("d9dde6"), 18))
+	box.add_child(_label("+%d BALAS" % reward if good else "sin premio", 54, Color.WHITE if good else Color(1, 1, 1, 0.7), 14))
+	if good:
+		_confetti(Vector2(vp.x / 2.0, -20.0), vp.x) # antes que el cartel: queda por detrás
 	_root.add_child(box)
 	var bs := box.get_combined_minimum_size()
 	box.size = bs
@@ -671,9 +676,44 @@ func special_banner(reward: int) -> void:
 		tw.tween_property(box, "rotation", 0.06, 0.12)
 	tw.tween_property(box, "rotation", 0.0, 0.1)
 	tw.parallel().tween_property(box, "scale", Vector2.ONE, 0.1)
-	tw.tween_interval(0.9)
+	tw.tween_interval(1.1)
 	tw.tween_property(box, "modulate:a", 0.0, 0.4)
 	tw.tween_callback(box.queue_free)
+
+
+## Entrás a un nivel especial: franja de lado a lado con el nombre y el objetivo.
+func special_intro(title: String, goal: String, color: Color) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var band := PanelContainer.new()
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var st := StyleBoxFlat.new()
+	st.bg_color = Color(INK, 0.88)
+	st.border_color = color
+	st.border_width_top = 8
+	st.border_width_bottom = 8
+	st.content_margin_top = 26
+	st.content_margin_bottom = 30
+	band.add_theme_stylebox_override("panel", st)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	band.add_child(v)
+	v.add_child(_label("NIVEL ESPECIAL", 34, Color(1, 1, 1, 0.7), 0))
+	v.add_child(_label(title, 92, color, 16))
+	v.add_child(_label(goal, 40, Color.WHITE, 10))
+	_root.add_child(band)
+	band.size = Vector2(vp.x, band.get_combined_minimum_size().y)
+	band.position = Vector2(vp.x, vp.y * 0.64) # abajo: no tapa el arma
+	var tw := create_tween().set_ignore_time_scale()
+	tw.tween_property(band, "position:x", 0.0, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(1.8)
+	tw.tween_property(band, "position:x", -vp.x, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	tw.tween_callback(band.queue_free)
+
+
+## Contador del nivel especial (debajo de la distancia); "" lo esconde.
+func set_special_info(text: String) -> void:
+	_special_info.text = text
+	_special_info.visible = text != ""
 
 
 func _confetti(at: Vector2, width: float) -> void:

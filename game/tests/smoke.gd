@@ -43,7 +43,11 @@ func _run() -> void:
 	await test_ufo()
 	await test_booster()
 	await test_astronaut()
-	await test_special_done()
+	await test_special_chase()
+	await test_special_gallery()
+	await test_special_blackout()
+	await test_special_ends_while_inside()
+	await test_special_boss()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
 	await test_camera_bot_gameplay()
@@ -62,6 +66,7 @@ func _run() -> void:
 	await test_pierce_slowmo()
 	await test_arrows()
 	test_market_in_level()
+	await test_market_air()
 	await test_power_streak()
 	await test_powers()
 	await test_hurt_without_ammo()
@@ -326,9 +331,7 @@ func test_level_generator() -> void:
 		specials[b.special] = true
 		for it in b.items:
 			types[it.type] = types.get(it.type, 0) + 1
-			if it.type in ["hawk", "bat", "ammo"]:
-				if it.y < b.top + 1.0 and b.special != "air":
-					check(false, "bicho volador metido en el piso en x=%.1f" % it.x)
+			if b.special != "": # los niveles especiales tienen su test
 				continue
 			enemy_xs.append(it.x)
 			if it.x < b.x0 + 0.5 or it.x > b.x1 - 0.5 or it.y != b.top:
@@ -360,7 +363,7 @@ func test_level_generator() -> void:
 				fan_xs.append(it.x)
 	check(fan_xs.size() >= 3 and fan_xs.size() < 40, "ventiladores: pocos (%d en 3km)" % fan_xs.size())
 	check(fan_xs.all(func(x): return x > Config.FAN_FROM), "ventiladores solo pasados los %dm" % Config.FAN_FROM)
-	for t in ["plain", "sword", "shield", "helmet", "chest", "trap", "spring", "bat", "ammo"]:
+	for t in ["plain", "sword", "shield", "helmet", "chest", "trap", "spring"]:
 		check(types.get(t, 0) > 0, "aparece %s (%d)" % [t, types.get(t, 0)])
 	var total_chests: int = types.get("chest", 0) + types.get("trap", 0)
 	check(types.get("trap", 0) < total_chests * 0.6, "trampas: la minoría (%d de %d)" % [types.get("trap", 0), total_chests])
@@ -775,11 +778,60 @@ func test_trap_chest() -> void:
 		m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
 	var d1: float = mm.global_position.distance_to(m.gun.global_position)
-	check(d1 < d0 - Config.MIMIC_SPEED * 0.7 or m.ammo < 6, "te persigue (%.1f -> %.1f m)" % [d0, d1])
+	check(d1 < d0 - Config.MIMIC_SPEED * 0.7 or m.eaten, "te persigue (%.1f -> %.1f m)" % [d0, d1])
+	Records.set_stat("insurance", 1) # ni el seguro te salva
 	var t0 := Time.get_ticks_msec()
-	while m.ammo == 6 and Time.get_ticks_msec() - t0 < 4000:
+	while m.state == m.State.PLAYING and Time.get_ticks_msec() - t0 < 6000:
+		if not m.eaten:
+			m.gun.global_position = hold
+			m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
-	check(m.ammo == 6 - Config.MIMIC_DAMAGE, "si te toca: -%d balas (%d)" % [Config.MIMIC_DAMAGE, m.ammo])
+	check(m.eaten and mm._chomped, "si te quedás quieto, te mete en la boca y la cierra")
+	check(m.state == m.State.OVER and m.hud._over_title.text == "¡TE COMIÓ!", "y perdés la partida, aunque tengas seguro (%s)" % m.hud._over_title.text)
+	check(Records.stat("insurance") == 1, "(el seguro no se gasta)")
+	Records.set_stat("insurance", 0)
+	await despawn(m)
+	# rozarlo de costado (la madera): -2 y te empuja
+	m = await spawn()
+	clear_world(m)
+	await place_gun(m, Vector2(0.0, 1.0), 0.0)
+	m.spawn_mimic(Vector3(4.0, 0.0, 0.0))
+	mm = m.entities[-1]
+	mm.set_meta("seen", true)
+	await physics_frame
+	mm.set_physics_process(false)
+	m.ammo = 6
+	m.gun.freeze = true
+	m.gun.global_position = mm.global_position + Vector3(0, 1.0, 0) # a la altura de la mandíbula
+	mm._bite_cd = 0.0
+	mm.set_physics_process(true)
+	for i in 20:
+		if m.ammo != 6 or m.eaten:
+			break
+		m.gun.global_position = mm.global_position + Vector3(0, 1.0, 0)
+		await physics_frame
+	check(m.ammo == 6 - Config.MIMIC_DAMAGE and not m.eaten, "si te roza la madera: -%d balas (%d)" % [Config.MIMIC_DAMAGE, m.ammo])
+	await despawn(m)
+	# te come aunque tengas balas: no tiene que ver con la vida
+	m = await spawn()
+	clear_world(m)
+	await place_gun(m, Vector2(0.0, 1.0), 0.0)
+	m.spawn_mimic(Vector3(4.0, 0.0, 0.0))
+	mm = m.entities[-1]
+	await physics_frame
+	m.ammo = 50
+	m.gun.freeze = true
+	m.gun.global_position = mm.mouth_position()
+	await physics_frame
+	await physics_frame
+	check(m.eaten, "con 50 balas también te come")
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	m.spawn_mimic(Vector3(8.0, 0.0, 0.0))
+	mm = m.entities[-1]
+	mm.set_meta("seen", true)
+	await physics_frame
 	# matarlo: un tiro a la boca, te da 5; en la madera rebota
 	m.ammo = 10
 	m._hurt_cd = 99.0
@@ -877,70 +929,18 @@ func test_hurt_without_ammo() -> void:
 	await despawn(m)
 
 
-func test_special_levels() -> void:
-	print("niveles especiales")
-	for sp in ["stairs_down", "stairs_up", "air"]:
-		var lv := Level.new(5, sp)
-		var bs := [lv.next_block()]
-		while bs[-1].x1 < 400.0:
-			bs.append(lv.next_block())
-		var sb := bs.filter(func(b): return b.special == sp)
-		check(sb.size() > 0, "%s arranca apenas termina el arranque" % sp)
-		if sp == "air":
-			var gap: float = sb[0].x0 - bs[0].x1
-			check(gap >= Level.AIR_LEN - 15.0, "aéreo: %.0fm sin piso" % gap)
-			check(absf(sb[0].top - bs[0].top) < 0.01, "aéreo: salida a la misma altura")
-			check(sb[0].items.filter(func(it): return it.type == "ammo").size() > 15, "aéreo: balas flotando")
-			continue
-		var length: float = sb[-1].x1 - sb[0].x0
-		var dh: float = sb[-1].top - bs[0].top
-		check(length >= Level.STAIRS_LEN - 10.0, "%s: %.0fm de largo" % [sp, length])
-		check(dh < -40.0 if sp == "stairs_down" else dh > 40.0, "%s: cambio de altura %.0fm" % [sp, dh])
-		var gaps := 0
-		for i in range(1, sb.size()):
-			if sb[i].x0 - sb[i - 1].x1 > 0.5:
-				gaps += 1
-		check(gaps > 5, "%s: con huecos (%d)" % [sp, gaps])
-		# el piso normal sigue alrededor de la nueva altura
-		var after := bs.filter(func(b): return b.special == "" and b.x0 >= sb[-1].x1)
-		if not after.is_empty():
-			check(absf(after[0].top - sb[-1].top) <= Level.MAX_STEP_DOWN + 0.1, "%s: después sigue desde esa altura (%.1f -> %.1f)" % [sp, sb[-1].top, after[0].top])
-	# los primeros 300 m: uno cada 100 m, cortitos, uno de cada tipo
-	var lv0 := Level.new(11)
-	var all := [lv0.next_block()]
-	while all[-1].x1 < 900.0:
-		all.append(lv0.next_block())
-	var starts := []
-	var kinds := {}
-	for i in range(1, all.size()):
-		if all[i].special != "" and all[i - 1].special != all[i].special:
-			starts.append(all[i].x0 if all[i].special != "air" else all[i - 1].x1)
-			kinds[all[i].special] = true
-	check(starts.size() >= 3, "hay niveles especiales temprano (%s)" % str(starts.map(func(x): return roundi(x))))
-	if starts.size() >= 3:
-		check(absf(starts[0] - 100.0) < 15.0 and absf(starts[1] - 200.0) < 15.0 and absf(starts[2] - 300.0) < 15.0, "a los 100, 200 y 300 m (%d, %d, %d)" % [starts[0], starts[1], starts[2]])
-		check(kinds.size() == 3, "uno de cada tipo (%s)" % str(kinds.keys()))
-	check(starts.size() < 4 or starts[3] > 800.0, "después, cada %dm" % Level.SPECIAL_EVERY)
-	# probar nivel desde AJUSTES
-	Level.debug_special = "air"
-	var m := await spawn()
-	check(m.level.special == "" and m.blocks.size() >= 2 and m.blocks[1].special == "air", "PROBAR NIVEL arranca con ese nivel")
-	check(Level.debug_special == "", "y vale para una sola partida")
-	await despawn(m)
-
-
 func test_altitude_zones() -> void:
 	print("zonas por altura")
 	var m := await spawn()
 	var counts := {}
 	for alt in [5.0, 30.0, 60.0, 100.0]:
 		var c := {}
-		for i in 400:
+		for i in 2000: # (muchas: que el azar no dé vuelta las proporciones)
 			var t: String = m.sky_type(alt)
 			c[t] = c.get(t, 0) + 1
 		counts[alt] = c
 	for alt in counts:
-		check(counts[alt].has("spring_air"), "a %.0fm también hay resortes flotando (%d de 400)" % [alt, counts[alt].get("spring_air", 0)])
+		check(counts[alt].has("spring_air"), "a %.0fm también hay resortes flotando (%d de 2000)" % [alt, counts[alt].get("spring_air", 0)])
 		counts[alt].erase("spring_air")
 		check(counts[alt].has("padlock"), "a %.0fm también hay candados" % alt)
 		counts[alt].erase("padlock")
@@ -1162,35 +1162,6 @@ func test_camera_bot_gameplay() -> void:
 	await despawn(m)
 
 
-func test_special_done() -> void:
-	print("pasar un nivel especial")
-	Level.debug_special = "stairs_up"
-	var m := await spawn()
-	await place_gun(m, Vector2(0.0, 3.0), 0.0)
-	var end_x := 0.0
-	for i in 200: # que se genere hasta el final de la escalera
-		m._stream_world(m.blocks[-1].x1)
-		if not m.special_ends.is_empty():
-			end_x = m.special_ends[0].x
-			break
-	check(end_x > 250.0, "se sabe dónde termina (x=%.0f)" % end_x)
-	var before: int = m.ammo
-	m.gun.freeze = true
-	m.gun.global_position = Vector3(end_x - 1.0, Level.top_at(m.blocks, end_x - 1.0) + 2.0, 0)
-	await process_frame
-	await process_frame
-	check(m.specials_done == 0, "antes del final, nada")
-	m.gun.global_position = Vector3(end_x + 1.0, Level.top_at(m.blocks, end_x + 1.0) + 2.0, 0)
-	await process_frame
-	await process_frame
-	check(m.specials_done == 1, "al pasarlo: ¡NIVEL ESPECIAL!")
-	check(m.ammo == before + Config.SPECIAL_REWARD, "+%d balas (%d -> %d)" % [Config.SPECIAL_REWARD, before, m.ammo])
-	check("fanfare" in m.sfx.played, "suena la fanfarria")
-	await process_frame
-	check(m.specials_done == 1, "una sola vez")
-	await despawn(m)
-
-
 func test_padlock() -> void:
 	print("candado")
 	var m := await spawn()
@@ -1284,6 +1255,26 @@ func test_ufo() -> void:
 	await physics_frame
 	await physics_frame
 	check(u.leaving, "si lo dejás muy lejos, se va")
+	# no te persigue para siempre: después de UFO_CHASE_DIST se rinde
+	clear_world(m)
+	await physics_frame
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	u = put(m, "ufo", 5.0, 6.0)
+	gx = 0.0
+	var gave_up_at := -1.0
+	for i in 1200: # 10 s a 8 m/s
+		gx += 8.0 / 120.0
+		m.gun.global_position = Vector3(gx, 3.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+		var cam_ok: bool = m.camera.is_position_in_frustum(u.global_position)
+		if not u.leaving and gx > 6.0 and not cam_ok:
+			check(false, "mientras te persigue, se ve en pantalla (x=%.1f, arma %.1f)" % [u.global_position.x, gx])
+			break
+		if u.leaving:
+			gave_up_at = gx
+			break
+	check(gave_up_at > Config.UFO_CHASE_DIST - 10.0 and gave_up_at < Config.UFO_CHASE_DIST + 15.0, "se rinde después de ~%d m (a los %.0f)" % [Config.UFO_CHASE_DIST, gave_up_at])
 	# no más de UFO_MAX a la vez
 	clear_world(m)
 	for i in Config.UFO_MAX:
@@ -1661,4 +1652,332 @@ func test_arrows() -> void:
 	r.global_position = Vector3(80.0, 2.5, 0.0)
 	await process_frame
 	check(m.hud.visible_arrows() == 0, "muy lejos, sin flecha")
+	await despawn(m)
+
+
+func test_market_air() -> void:
+	print("mercado en el aire (bañadera con globos)")
+	var m := await spawn()
+	await place_gun(m, Vector2(400.0, 60.0), 0.0)
+	m.gun.freeze = true
+	await process_frame
+	await process_frame
+	clear_world(m) # (sin bañaderas del piso cerca)
+	var tubs := 0
+	for i in 400:
+		m._sky_progress = 999.0
+		m._sky_last = m.gun.global_position
+		var n0: int = m.entities.size()
+		m._sky_spawner(m.gun.global_position)
+		for e in m.entities.slice(n0):
+			if e is Tub:
+				tubs += 1
+				check(e.floating, "la del aire cuelga de globos")
+				check(e.global_position.y > Level.top_at(m.blocks, e.global_position.x) + 20.0, "aparece en el aire, cerca de tu altura (y=%.0f)" % e.global_position.y)
+	check(tubs == 1, "aparece y no se repite cerca (%d)" % tubs)
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	m.state = m.State.PLAYING
+	var tub: Tub = put(m, "market_air", 6.0, 30.0)
+	await physics_frame
+	await place_gun(m, Vector2(6.0, 32.5), 0.0) # cae adentro
+	var t0 := Time.get_ticks_msec()
+	while m.state == m.State.PLAYING and Time.get_ticks_msec() - t0 < 4000:
+		await physics_frame
+	check(m.state == m.State.MARKET, "cayendo adentro de la bañadera voladora entrás al mercado")
+	await despawn(m)
+	m = await spawn()
+	clear_world(m)
+	await place_gun(m, Vector2(100.0, 60.0), 0.0)
+	m.gun.freeze = true
+	check(not m._air_market_ok(Vector3(110.0, 60.0, 0.0), 50.0), "antes de los %dm no aparece" % Config.MARKET_FROM)
+	check(not m._air_market_ok(Vector3(410.0, 3.0, 0.0), 2.0), "cerca del piso no (ahí están las del piso)")
+	await despawn(m)
+
+
+func test_special_levels() -> void:
+	print("niveles especiales")
+	for sp in Level.SPECIALS:
+		var lv := Level.new(5, sp)
+		var bs := [lv.next_block()]
+		while bs[-1].x1 < 400.0:
+			bs.append(lv.next_block())
+		var sb := bs.filter(func(b): return b.special == sp)
+		check(sb.size() > 0, "%s arranca apenas termina el arranque" % sp)
+		if sb.is_empty():
+			continue
+		var length: float = sb[-1].x1 - sb[0].x0
+		check(absf(length - Level.SPECIAL_LEN[sp]) < 12.0, "%s: %.0fm de largo" % [sp, length])
+		var gaps := 0
+		for i in range(1, sb.size()):
+			if sb[i].x0 - sb[i - 1].x1 > 0.5:
+				gaps += 1
+		var items := []
+		for b in sb:
+			items += b.items
+		var kinds := {}
+		for it in items:
+			kinds[it.type] = kinds.get(it.type, 0) + 1
+		match sp:
+			"chase":
+				check(gaps == 0, "persecución: sin huecos")
+				check(items.size() >= 4, "persecución: algunos personajes (%d)" % items.size())
+			"gallery":
+				check(gaps == 0, "galería: sin huecos")
+				check(kinds.get("target", 0) >= 10 and kinds.size() == 1, "galería: solo dianas (%s)" % str(kinds))
+			"blackout":
+				check(items.size() >= 10 and not kinds.has("helmet"), "apagón: muchos personajes, ninguno con casco (%s)" % str(kinds))
+			"boss":
+				check(kinds.get("boss", 0) == 1 and items.size() == 1, "jefe: un robot y nada más (%s)" % str(kinds))
+	# cuándo aparecen: el primero a los 250 m, después cada 500 m, sin repetir
+	var lv0 := Level.new(11)
+	var all := [lv0.next_block()]
+	while all[-1].x1 < 2500.0:
+		all.append(lv0.next_block())
+	var zones := []
+	for i in range(1, all.size()):
+		if all[i].special != "" and all[i - 1].special != all[i].special:
+			zones.append({"kind": all[i].special, "x0": all[i].x0})
+		if all[i].special == "" and all[i - 1].special != "":
+			zones[-1].x1 = all[i - 1].x1
+	check(zones.size() >= 4, "hay niveles especiales (%s)" % str(zones.map(func(z): return "%s@%d" % [z.kind, roundi(z.x0)])))
+	if zones.size() >= 4:
+		check(absf(zones[0].x0 - Level.SPECIAL_FIRST) < 15.0, "el primero a los %dm (%d)" % [Level.SPECIAL_FIRST, zones[0].x0])
+		check(absf(zones[1].x0 - zones[0].x1 - Level.SPECIAL_EVERY) < 15.0, "después, %dm después del anterior (%d)" % [Level.SPECIAL_EVERY, zones[1].x0 - zones[0].x1])
+		var k4 := {}
+		for z in zones.slice(0, 4):
+			k4[z.kind] = true
+		check(k4.size() == 4, "los cuatro antes de repetir (%s)" % str(k4.keys()))
+	# probar nivel desde AJUSTES
+	Level.debug_special = "gallery"
+	var m := await spawn()
+	check(m.blocks.size() >= 2 and m.blocks[1].special == "gallery", "PROBAR NIVEL arranca con ese nivel")
+	check(Level.debug_special == "", "y vale para una sola partida")
+	await despawn(m)
+
+
+## Arranca una partida con ese nivel especial y pone el arma recién entrada.
+func enter_special(kind: String) -> Node:
+	Level.debug_special = kind
+	var m := await spawn()
+	if kind == "chase": # sin personajes en el camino
+		clear_world(m)
+	var z: Dictionary = m.special_zones[0]
+	for i in 30:
+		if z.x1 != INF:
+			break
+		m._stream_world(m.blocks[-1].x1)
+	await place_gun(m, Vector2(z.x0 + 1.0, Level.top_at(m.blocks, z.x0 + 1.0) + 1.2), 0.0)
+	m.fan_ride = 999.0 # sin bichos del cielo que molesten la cuenta
+	await process_frame
+	await process_frame
+	return m
+
+
+## Entrás antes de que se genere el final (el mundo se genera de a poco): igual termina.
+func test_special_ends_while_inside() -> void:
+	print("especial: termina aunque entres antes de que se genere el final")
+	for kind in ["blackout", "gallery"]:
+		Level.debug_special = kind
+		var m := await spawn()
+		clear_world(m)
+		var z: Dictionary = m.special_zones[0]
+		check(z.x1 == INF, "%s: al entrar todavía no tiene final" % kind)
+		await place_gun(m, Vector2(z.x0 - 2.0, Level.top_at(m.blocks, z.x0 - 2.0) + 2.0), 0.0)
+		m.gun.freeze = true
+		m.fan_ride = 999.0
+		m.powers.untouchable = 99.0
+		var x: float = z.x0 + 1.0
+		var t0 := Time.get_ticks_msec()
+		while m.special_zone.get("kind", "") == kind or m.special_zone.is_empty() and x < z.x0 + 30.0:
+			x += 1.5
+			m.gun.global_position = Vector3(x, Level.top_at(m.blocks, x) + 2.0, 0)
+			await physics_frame
+			if m.special_zone.get("kind", "") == kind:
+				z["started"] = true
+			if Time.get_ticks_msec() - t0 > 20000 or x > z.x0 + 400.0:
+				break
+		check(z.get("started", false), "%s: arrancó" % kind)
+		check(m.special_zone.is_empty() and z.x1 != INF and x < z.x1 + 10.0, "%s: termina al pasar su final (x=%.0f, fin=%.0f)" % [kind, x, z.x1])
+		await despawn(m)
+	Level.debug_special = ""
+
+
+func test_special_chase() -> void:
+	print("especial: persecución")
+	var m := await enter_special("chase")
+	check(m.special_zone.get("kind", "") == "chase" and m._chaser != null, "al entrar arranca (y aparece la boca gigante)")
+	check(m.hud._special_info.visible, "contador en pantalla: %s" % m.hud._special_info.text)
+	Records.set_stat("insurance", 1)
+	var hold: Vector3 = m.gun.global_position
+	var t0 := Time.get_ticks_msec()
+	while m.state == m.State.PLAYING and Time.get_ticks_msec() - t0 < 8000:
+		if not m.eaten:
+			m.gun.global_position = hold
+			m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+	check(m.eaten and m.state == m.State.OVER and m.hud._over_title.text == "¡TE COMIÓ!", "si te quedás, te alcanza y te come (sin seguro que valga)")
+	Records.set_stat("insurance", 0)
+	await despawn(m)
+	# escapar: avanzar más rápido que la boca hasta el final
+	m = await enter_special("chase")
+	var z: Dictionary = m.special_zone
+	var x: float = m.gun.global_position.x
+	var before: int = m.ammo
+	m.gun.freeze = true
+	while x < z.x1 + 1.0 and m.state == m.State.PLAYING:
+		m._hurt_cd = 99.0 # (los personajes del camino no cuentan acá)
+		x += 9.0 / 120.0
+		m.gun.global_position = Vector3(x, Level.top_at(m.blocks, x) + 2.0, 0.0)
+		await physics_frame
+	await process_frame
+	check(not m.eaten and m.special_zone.is_empty(), "si llegás al final, escapaste")
+	check(m.ammo == before + Config.CHASE_REWARD, "+%d balas (%d -> %d)" % [Config.CHASE_REWARD, before, m.ammo])
+	await despawn(m)
+
+
+func test_special_gallery() -> void:
+	print("especial: galería de tiro")
+	var m := await enter_special("gallery")
+	var z: Dictionary = m.special_zone
+	check(z.get("kind", "") == "gallery" and z.total >= 10, "%d dianas" % z.total)
+	var targets: Array = m.entities.filter(func(n): return n is Target)
+	targets.sort_custom(func(a, b): return a.global_position.x < b.global_position.x)
+	var tg: Target = targets[0]
+	check(tg.state == "hidden" or tg.global_position.x - m.gun.global_position.x < Config.TARGET_TRIGGER, "escondidas hasta que te acercás")
+	# al centro: 2 puntos y te devuelve la bala
+	var c: Vector3 = tg.global_position
+	var gp := Vector2(c.x - 5.0, c.y - 0.2)
+	m.gun.global_position = Vector3(gp.x, gp.y, 0)
+	await physics_frame
+	await physics_frame
+	check(tg.state == "up", "asoma cuando estás cerca")
+	var before: int = m.ammo
+	await fire_at(m, gp, c)
+	check(tg.points == 2 and z.points == 2, "al centro: 2 puntos (%d)" % tg.points)
+	check(m.ammo == before, "cada acierto te devuelve la bala (%d -> %d)" % [before, m.ammo])
+	# al borde: 1 punto
+	var tg2: Target = targets[1]
+	c = tg2.global_position
+	gp = Vector2(c.x - 5.0, c.y + 0.3)
+	m.gun.global_position = Vector3(gp.x, gp.y, 0)
+	await physics_frame
+	await physics_frame
+	if tg2.mode == "fly":
+		tg2.set_physics_process(false)
+		c = tg2.global_position
+	await fire_at(m, gp, c + Vector3(0, 0.55, 0))
+	check(tg2.points == 1 and z.points == 3, "al borde: 1 punto (%d)" % tg2.points)
+	# si no le pegás, se esconde sola
+	var tg3: Target = targets[2]
+	m.gun.global_position = tg3.global_position - Vector3(5.0, 0.0, 0.0)
+	await wait_s(Config.TARGET_UP_TIME + 0.6)
+	check(tg3.state == "done" and tg3.points == 0, "si no le pegás, se va")
+	# terminar: con 3 de %d no hay medalla
+	m._hurt_cd = 99.0
+	before = m.ammo
+	m.gun.freeze = true
+	m.gun.global_position = Vector3(z.x1 + 1.0, Level.top_at(m.blocks, z.x1 + 1.0) + 2.0, 0)
+	for i in 4:
+		await process_frame
+	check(m.special_zone.is_empty() and m.ammo == before, "pocos puntos: sin medalla")
+	# con muchos puntos: oro
+	await despawn(m)
+	m = await enter_special("gallery")
+	z = m.special_zone
+	z.points = z.total * 2
+	before = m.ammo
+	m.gun.freeze = true
+	m.gun.global_position = Vector3(z.x1 + 1.0, Level.top_at(m.blocks, z.x1 + 1.0) + 2.0, 0)
+	for i in 4:
+		await process_frame
+	check(m.ammo == before + Config.GALLERY_MEDALS[0][2], "todo al centro: ¡ORO! +%d" % Config.GALLERY_MEDALS[0][2])
+	await despawn(m)
+
+
+func test_special_blackout() -> void:
+	print("especial: apagón")
+	var m := await enter_special("blackout")
+	check(m.special_zone.get("kind", "") == "blackout", "entraste al apagón")
+	await wait_s(2.0)
+	check(m._sun.light_energy < 0.2 and m._env.ambient_light_energy < 0.08, "se apaga la luz (sol %.2f)" % m._sun.light_energy)
+	check(m._gun_lamp.light_energy > 1.0 and m._gun_torch.light_energy > 1.5, "el arma se ve: luz tenue y linterna")
+	var es: Array = m.enemies.filter(func(e): return is_instance_valid(e) and e.alive and e.global_position.x > m.gun.global_position.x + 3.0)
+	var e: Enemy = es[0]
+	e.set_meta("seen", true)
+	var ep: Vector3 = e.global_position
+	var gp := Vector2(ep.x - 4.0, ep.y + 1.0)
+	await fire_at(m, gp, ep + Vector3(0, 0.8, 0))
+	check(not e.alive, "al cuerpo también mata (no solo headshots)")
+	var ffs: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Firefly)
+	check(ffs.size() >= 3, "hay lucecitas (%d)" % ffs.size())
+	var f: Firefly = ffs[0]
+	f.set_process(false) # quieta para apuntarle
+	f.set_meta("seen", true)
+	m.kill_streak = 0
+	var ammo0: int = m.ammo
+	var fp: Vector3 = f.global_position
+	await fire_at(m, Vector2(fp.x - 4.0, fp.y), fp)
+	check(not f.alive and m.special_zone.lights == 1, "le pegaste a una lucecita")
+	check(m.ammo == ammo0 - 1 + Config.FIREFLY_REWARD, "te da %d balas (%d)" % [Config.FIREFLY_REWARD, m.ammo])
+	var before: int = m.ammo
+	m.gun.freeze = true
+	var z: Dictionary = m.special_zone
+	m.gun.global_position = Vector3(z.x1 + 1.0, Level.top_at(m.blocks, z.x1 + 1.0) + 2.0, 0)
+	for i in 4:
+		await process_frame
+	check(m.ammo == before + Config.BLACKOUT_REWARD, "sin que te toquen: +%d" % Config.BLACKOUT_REWARD)
+	await wait_s(2.0)
+	check(m._sun.light_energy > 0.9, "al salir vuelve la luz")
+	await despawn(m)
+	m = await enter_special("blackout")
+	m._hurt_cd = 0.0
+	m.hurt(1, Vector3.ZERO)
+	before = m.ammo
+	z = m.special_zone
+	m.gun.freeze = true
+	m.gun.global_position = Vector3(z.x1 + 1.0, Level.top_at(m.blocks, z.x1 + 1.0) + 2.0, 0)
+	for i in 4:
+		await process_frame
+	check(m.ammo == before, "si te tocaron: sin premio")
+	await despawn(m)
+
+
+func test_special_boss() -> void:
+	print("especial: jefe")
+	var m := await enter_special("boss")
+	var bosses: Array = m.entities.filter(func(n): return n is Boss)
+	check(bosses.size() == 1, "hay un robot")
+	var boss: Boss = bosses[0]
+	boss.set_meta("seen", true)
+	var bp: Vector3 = boss.global_position
+	# no se pasa: ni caminando ni por arriba
+	var hit: Dictionary = m._raycast(Vector3(bp.x + 1.0, bp.y + 30.0, 0), Vector3(bp.x + 5.0, bp.y + 30.0, 0))
+	check(not hit.is_empty(), "campo de fuerza hasta el cielo")
+	m.gun.global_position = Vector3(bp.x - 12.0, bp.y + 2.0, 0)
+	await wait_s(Config.BOSS_FIRE_EVERY + 0.3)
+	check(m.entities.any(func(n): return is_instance_valid(n) and n is Rocket), "te tira cohetes")
+	m.powers.untouchable = 99.0
+	m.ammo = 30
+	boss.set_physics_process(false) # (que no tire más cohetes)
+	for n in m.entities: # (sin cohetes en el medio que sumen balas)
+		if is_instance_valid(n) and n is Rocket:
+			n.queue_free()
+	await physics_frame
+	var gp := Vector2(bp.x - 9.0, bp.y + 6.3)
+	await fire_at(m, gp, bp + Vector3(0, 3.0, 0))
+	check(boss.broken.is_empty() and boss.alive, "blindaje: rebota")
+	var before: int = m.ammo
+	for k in ["antenna", "core", "eye"]: # cualquiera, en cualquier orden
+		var sp := boss.spot_position(k)
+		await fire_at(m, Vector2(bp.x - 9.0, sp.y - 0.4), sp)
+		m.kill_streak = 0 # (que una racha no dé un poder de +15 en el medio)
+		check(boss.broken.has(k), "%s roto" % k)
+	check(not boss.alive and m.special_zone.broken == 3, "los 3 rotos: lo mataste")
+	check(m.ammo == before - 3 + Config.BOSS_REWARD, "+%d balas (%d)" % [Config.BOSS_REWARD, m.ammo])
+	await physics_frame
+	await physics_frame
+	hit = m._raycast(Vector3(bp.x + 1.0, bp.y + 30.0, 0), Vector3(bp.x + 5.0, bp.y + 30.0, 0))
+	check(hit.is_empty(), "y se abre el paso")
 	await despawn(m)

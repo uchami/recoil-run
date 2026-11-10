@@ -2,8 +2,8 @@ class_name Level
 extends RefCounted
 ## Generador infinito del piso: bloques de altura random con huecos entre algunos.
 ## El arranque es fijo (piso plano con los 3 personajes); de ahí en adelante, random.
-## Cada tanto arranca un nivel especial (escalera abajo, escalera arriba, aéreo):
-## los primeros 300 m, uno cortito cada 100 m (uno de cada tipo); después, cada 500 m.
+## Cada tanto arranca un nivel especial (persecución, galería de tiro, apagón, jefe):
+## el primero a los 250 m; después, uno cada 500 m (sin repetir hasta usar los cuatro).
 ##
 ## Cada bloque trae sus ítems de piso: [{type, x, y}]. Los bichos voladores no salen
 ## de acá: main.gd los hace aparecer alrededor de la altura del arma.
@@ -32,20 +32,16 @@ const ITEM_EDGE := 0.8 # distancia mínima al borde del bloque
 const GROUND_WEIGHTS := {"plain": 3.0, "sword": 2.0, "shield": 2.0, "helmet": 2.0, "chest": 1.6, "spring": 1.2}
 
 # Niveles especiales
-const SPECIALS := ["stairs_down", "stairs_up", "air"]
-const SPECIAL_EARLY := [100.0, 200.0, 300.0] # al principio, uno cada 100 m...
-const SPECIAL_EARLY_LEN := 60.0 # ...cortitos, para que entren
-const SPECIAL_EVERY := 500.0 # después, cada 500 m (y de largo completo)
-const STAIRS_LEN := 300.0
-const STAIRS_STEP_LEN := Vector2(3.0, 6.0)
-const STAIRS_DOWN_DROP := Vector2(0.8, 2.2)
-const STAIRS_UP_RISE := Vector2(0.6, 1.6)
-const STAIRS_GAP_CHANCE := 0.25
-const STAIRS_GAP_LEN := Vector2(2.0, 6.0)
-const AIR_LEN := 200.0
-const AIR_AMMO_SPACING := Vector2(6.0, 10.0)
-const AIR_HEIGHT := Vector2(1.5, 7.0)
-const AIR_BAT_SPACING := Vector2(16.0, 26.0)
+const SPECIALS := ["chase", "gallery", "blackout", "boss"]
+const SPECIAL_FIRST := 250.0
+const SPECIAL_EVERY := 500.0 # desde el final de uno hasta el principio del siguiente
+const SPECIAL_LEN := {"chase": 110.0, "gallery": 110.0, "blackout": 120.0, "boss": 50.0}
+const SPECIAL_STEP := {"chase": 1.6, "gallery": 0.4, "blackout": 2.0} # escalones máximos
+const GALLERY_SPACING := Vector2(6.5, 9.5)
+const BLACKOUT_SPACING := Vector2(5.0, 8.5)
+const CHASE_SPACING := Vector2(10.0, 16.0)
+const BOSS_ARENA := 34.0 # el robot va a BOSS_AT del principio de la arena
+const BOSS_AT := 24.0
 
 ## Solo para probar: el próximo nivel arranca con este especial apenas termina el arranque.
 static var debug_special := ""
@@ -56,10 +52,10 @@ var _x := START_X
 var _top := 0.0
 var _count := 0
 var _next_item_x := 0.0
-var _next_special_x: float = SPECIAL_EARLY[0]
+var _next_special_x: float = SPECIAL_FIRST
 var _special_end := 0.0
 var _special_bag: Array = []
-var _specials_started := 0
+var _boss_done := false
 var _force_lift := "" # solo para probar: "fan", "booster" o "market" apenas termina el arranque
 var _last_market_x := -INF
 
@@ -74,7 +70,6 @@ func _init(seed_value: int = -1, force_special := "") -> void:
 	elif force_special != "":
 		_next_special_x = START_X + START_LEN
 		_special_bag = [force_special]
-		_specials_started = SPECIAL_EARLY.size() # el de prueba va de largo completo
 
 
 ## Próximo bloque sólido: {x0, x1, top, items: [{type, x, y}], special}.
@@ -90,11 +85,10 @@ func next_block() -> Dictionary:
 
 	if special == "" and _x >= _next_special_x:
 		_start_special()
-	match special:
-		"air":
-			return _air_block()
-		"stairs_down", "stairs_up":
-			return _stairs_block()
+	if special == "boss":
+		return _boss_block()
+	if special != "":
+		return _special_block()
 	return _normal_block()
 
 
@@ -107,14 +101,10 @@ func _start_special() -> void:
 			_special_bag[i] = _special_bag[j]
 			_special_bag[j] = tmp
 	special = _special_bag.pop_back()
-	_specials_started += 1
-	var early := _specials_started <= SPECIAL_EARLY.size()
-	var length := SPECIAL_EARLY_LEN if early else (AIR_LEN if special == "air" else STAIRS_LEN)
-	_special_end = _x + length
-	if _specials_started < SPECIAL_EARLY.size():
-		_next_special_x = maxf(SPECIAL_EARLY[_specials_started], _special_end + 10.0)
-	else:
-		_next_special_x = _special_end + SPECIAL_EVERY
+	_special_end = _x + SPECIAL_LEN[special]
+	_next_special_x = _special_end + SPECIAL_EVERY
+	_boss_done = false
+	_next_item_x = _x + 4.0
 
 
 func _end_special() -> void:
@@ -140,46 +130,70 @@ func _normal_block() -> Dictionary:
 	return _finish_block(length, "")
 
 
-func _stairs_block() -> Dictionary:
-	if rng.randf() < STAIRS_GAP_CHANCE:
-		_x += rng.randf_range(STAIRS_GAP_LEN.x, STAIRS_GAP_LEN.y)
-	if special == "stairs_down":
-		_top -= rng.randf_range(STAIRS_DOWN_DROP.x, STAIRS_DOWN_DROP.y)
-	else:
-		_top += rng.randf_range(STAIRS_UP_RISE.x, STAIRS_UP_RISE.y)
+## Tramo de un nivel especial (persecución, galería, apagón): sin huecos (en el
+## apagón, alguno chico), escalones según el nivel y sus propios ítems.
+func _special_block() -> Dictionary:
 	var kind := special
-	var b := _finish_block(rng.randf_range(STAIRS_STEP_LEN.x, STAIRS_STEP_LEN.y), kind)
-	if _x >= _special_end:
+	if kind == "blackout" and rng.randf() < 0.2:
+		_x += rng.randf_range(2.0, 4.5)
+	var step: float = SPECIAL_STEP[kind]
+	_top += rng.randf_range(-step, step)
+	var length := rng.randf_range(6.0, 12.0)
+	if _x + length > _special_end:
+		length = maxf(_special_end - _x, 3.0)
+	var b := _finish_block(length, kind)
+	if _x >= _special_end - 0.01:
 		_end_special()
 	return b
 
 
-## Nivel aéreo: un hueco enorme sin piso, con balas flotando y murciélagos. Se
-## devuelve el bloque de salida (a la misma altura que la entrada) con todo lo del aire.
-func _air_block() -> Dictionary:
-	var x0 := _x
-	var x1 := _special_end
-	var items := []
-	var x := x0 + rng.randf_range(4.0, 7.0)
-	while x < x1 - 4.0:
-		items.append({"type": "ammo", "x": x, "y": _top + rng.randf_range(AIR_HEIGHT.x, AIR_HEIGHT.y)})
-		x += rng.randf_range(AIR_AMMO_SPACING.x, AIR_AMMO_SPACING.y)
-	x = x0 + rng.randf_range(12.0, 20.0)
-	while x < x1 - 8.0:
-		items.append({"type": "bat", "x": x, "y": _top + rng.randf_range(AIR_HEIGHT.x + 1.0, AIR_HEIGHT.y + 1.0)})
-		x += rng.randf_range(AIR_BAT_SPACING.x, AIR_BAT_SPACING.y)
-	_x = x1
+## Jefe: una arena plana con el robot; después, la salida a la misma altura.
+func _boss_block() -> Dictionary:
+	if not _boss_done:
+		_boss_done = true
+		var b := _finish_block(BOSS_ARENA, "boss")
+		b.items = [{"type": "boss", "x": b.x0 + BOSS_AT, "y": b.top}]
+		return b
+	var b2 := _finish_block(_special_end - _x if _special_end - _x > 6.0 else 12.0, "boss")
+	b2.items = []
 	_end_special()
 	_next_item_x = _x + 3.0
-	var b := _finish_block(10.0, "air")
-	b.items = items + b.items
-	return b
+	return b2
+
+
+## Ítems de un tramo especial (en vez de los del piso normal).
+func _special_items(b: Dictionary) -> void:
+	var kind: String = b.special
+	if kind == "boss":
+		return
+	var spacing: Vector2 = {"gallery": GALLERY_SPACING, "blackout": BLACKOUT_SPACING, "chase": CHASE_SPACING}[kind]
+	if _next_item_x < b.x0 + ITEM_EDGE:
+		_next_item_x = b.x0 + ITEM_EDGE + rng.randf_range(0.0, 1.5)
+	while _next_item_x <= b.x1 - ITEM_EDGE:
+		var x := _next_item_x
+		match kind:
+			"gallery":
+				var mode: String = ["ground", "ground", "hang", "fly"][rng.randi_range(0, 3)]
+				var y: float = b.top + {"ground": 1.4, "hang": rng.randf_range(3.2, 5.0), "fly": rng.randf_range(2.5, 4.5)}[mode]
+				b.items.append({"type": "target", "x": x, "y": y, "mode": mode})
+			"blackout": # enemigos (solo se les ven los ojos) y lucecitas que dan balas
+				b.items.append({"type": ["plain", "sword", "shield", "plain", "sword"][rng.randi_range(0, 4)], "x": x, "y": b.top})
+				for i in rng.randi_range(1, 2):
+					var fx := x + rng.randf_range(1.5, spacing.x - 1.0)
+					if fx < b.x1:
+						b.items.append({"type": "firefly", "x": fx, "y": b.top + rng.randf_range(1.6, 5.0)})
+			"chase": # pocos: obstáculos y balas
+				b.items.append({"type": ["plain", "plain", "sword"][rng.randi_range(0, 2)], "x": x, "y": b.top})
+		_next_item_x += rng.randf_range(spacing.x, spacing.y)
 
 
 func _finish_block(length: float, kind: String) -> Dictionary:
 	var b := {"x0": _x, "x1": _x + length, "top": _top, "items": [], "special": kind}
 	_x = b.x1
 	_count += 1
+	if kind != "":
+		_special_items(b)
+		return b
 
 	# Ítems de piso: uno cada ITEM_SPACING metros; si el lugar cae en un hueco o
 	# muy al borde, se corre al principio del bloque siguiente.

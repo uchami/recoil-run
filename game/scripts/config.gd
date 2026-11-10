@@ -10,7 +10,7 @@ const KILL_REWARD := 2 # balas por kill al cuerpo
 const ANGULAR_DAMP := 0.15
 
 const BULLET_RANGE := 40.0
-const BULLET_SPEED := 55.0 # m/s: las balas vuelan (rápido, pero se ven)
+const BULLET_SPEED := 27.5 # m/s: las balas vuelan (se ven ir)
 const PIERCE_KILLS := 4 # balas penetrantes: matan hasta 4 en fila
 const PIERCE_SLOWMO_KILLS := 3 # una bala penetrante que mata 3 o más: cámara lenta
 const RICOCHETS := 1 # balas que rebotan (mercado): rebotes en el piso por bala
@@ -109,8 +109,26 @@ const FAN_CHANCE := 0.06 # por bloque
 const FAN_WIDTH := 2.4
 const FAN_MAX_SPEED := 14.0
 
-# Pasar un nivel especial
-const SPECIAL_REWARD := 5
+# Niveles especiales: premio según cómo te fue (falla = nada)
+const CHASE_REWARD := 10 # escapaste
+const BLACKOUT_REWARD := 10 # cruzaste sin que te toquen
+const FIREFLY_REWARD := 2 # apagón: cada lucecita que le pegás
+const BOSS_REWARD := 15 # lo mataste
+const GALLERY_MEDALS := [[0.85, "ORO", 20], [0.6, "PLATA", 10], [0.35, "BRONCE", 5]] # [fracción de los puntos, medalla, balas]
+
+# Persecución: cofre trampa gigante que te persigue
+const CHASE_HEIGHT := 14.0 # m de alto (más que la pantalla: no se escapa por arriba)
+const CHASE_SPEED := Vector2(3.2, 5.2) # m/s al principio y al final del tramo
+const CHASE_START_GAP := 9.0 # arranca a esta distancia detrás tuyo
+const CHASE_MAX_GAP := 10.0 # nunca queda más lejos que esto (y la cámara la muestra)
+
+# Galería de tiro
+const TARGET_TRIGGER := 8.0 # la diana asoma cuando estás a esta distancia
+const TARGET_UP_TIME := 2.6 # segundos a la vista
+
+# Jefe: robot gigante
+const BOSS_WAKE := 22.0 # se despierta cuando estás a esta distancia
+const BOSS_FIRE_EVERY := 2.6 # un cohete cada tanto
 
 # Candado volador: muere de un tiro; si te toca, se te pega y el arma pesa más
 const PADLOCK_REWARD := 3
@@ -122,11 +140,13 @@ const PADLOCK_CHANCE := 0.12 # de lo que aparece en el cielo
 const UFO_ALT := 80.0
 const UFO_REWARD := 5 # se mata de un tiro a la cúpula; en el plato rebota
 const UFO_MAX := 2 # te persiguen: no más de 2 a la vez
-const UFO_CHASE_SPEED := 7.0 # m/s máximos para seguirte
-const UFO_HOVER := Vector2(5.5, 1.5) # se pone a esta distancia de vos (al costado, un poco arriba)
+const UFO_CHASE_SPEED := 4.0 # m/s con los que se acomoda a su lugar (además de seguirte el ritmo)
+const UFO_MAX_SPEED := 14.0 # te sigue el ritmo hasta esta velocidad
+const UFO_HOVER := Vector2(4.5, 2.5) # se pone adelante tuyo y un poco arriba: siempre a la vista
+const UFO_CHASE_DIST := 60.0 # después de recorrer esto (neto, desde donde apareció) se rinde y se va
 const UFO_GIVE_UP := 45.0 # si quedás más lejos que esto, se va
 const UFO_DAMAGE := 5 # el láser verde te saca 5 balas
-const UFO_SIGHT := 18.0
+const UFO_SIGHT := 11.0 # solo dispara si está a esta distancia y en pantalla
 const UFO_FIRE_EVERY := 3.0
 const UFO_AIM_TIME := 0.7 # aviso (línea finita) antes de disparar
 const UFO_BEAM_WIDTH := 0.6
@@ -148,6 +168,8 @@ const MARKET_CHANCE := 0.05 # por bloque de piso normal
 const MARKET_MIN_GAP := 150.0 # metros mínimos entre dos bañaderas
 const MARKET_STAY := 1.0
 const TUB_SIZE := Vector3(3.2, 1.0, 1.6)
+const MARKET_AIR_CHANCE := 0.05 # en el aire: de lo que aparece en el cielo, tanto es una bañadera con globos
+const MARKET_AIR_ALT := 8.0 # desde esta altura sobre el piso (más abajo están las del piso)
 # En cada visita ofrece MARKET_OFFERS mejoras al azar; cada compra en la misma
 # partida encarece las siguientes un MARKET_PRICE_STEP.
 const MARKET_OFFERS := 3

@@ -1,8 +1,9 @@
 class_name Mimic
 extends Area3D
-## Cofre trampa abierto: boca con dientes, te persigue. Se mata de un tiro a la
-## boca (la lengua): +5. En la madera (abajo o la tapa de atrás) la bala rebota.
-## Si te toca, -2 balas.
+## Cofre trampa abierto: boca con dientes, te persigue con la boca abierta.
+## Si te mete en la boca, la cierra y perdés la partida (sin seguro que valga).
+## Si solo te roza la madera, -2 balas. Se mata de un tiro a la boca (la lengua):
+## +5. En la madera (abajo o la tapa de atrás) la bala rebota.
 
 var game: Node
 var alive := true
@@ -16,6 +17,7 @@ var _facing := -1.0 # -1 = la boca mira a la izquierda (como el cofre), +1 = a l
 var _jaw_cs: CollisionShape3D
 var _mouth_cs: CollisionShape3D
 var _back_cs: CollisionShape3D
+var _chomped := false
 
 
 func _ready() -> void:
@@ -75,6 +77,21 @@ func shot(hit: Dictionary, _dir: Vector2) -> Dictionary:
 	return {"result": "mimic_kill", "reward": Config.MIMIC_REWARD}
 
 
+## ¿El arma está adentro de la boca?
+func _in_mouth(p: Vector3) -> bool:
+	var local := to_local(p) - _mouth_cs.position
+	var half := (_mouth_cs.shape as BoxShape3D).size / 2.0 + Vector3(0.4, 0.3, 0) # el arma tiene tamaño
+	return absf(local.x) < half.x and absf(local.y) < half.y
+
+
+## Cierra la boca de golpe (con el arma adentro).
+func _chomp() -> void:
+	_chomped = true
+	var tw := create_tween()
+	tw.tween_property(_lid, "rotation:z", 0.0, 0.12).set_trans(Tween.TRANS_BACK)
+	_tongue.visible = false
+
+
 func _physics_process(delta: float) -> void:
 	_t += delta
 	if not alive:
@@ -82,13 +99,20 @@ func _physics_process(delta: float) -> void:
 		global_position.y -= _fall_v * delta
 		_vis.rotation.z += delta * 2.0
 		return
+	if _chomped: # boca cerrada, masticando
+		_vis.scale.y = Chest.SCALE.y * (1.0 + sin(_t * 14.0) * 0.04)
+		return
 	_lid.rotation.z = -0.5 - absf(sin(_t * 6.0)) * 0.5 # mastica
 	_tongue.rotation.z = sin(_t * 9.0) * 0.25 # la lengua se mueve: es el blanco
 	_bite_cd -= delta
 	if game == null or game.state != game.State.PLAYING:
 		return
 	var gun: Node3D = game.gun
-	var target := gun.global_position - Vector3(0, Chest.world_size().y * 0.5, 0)
+	if _in_mouth(gun.global_position) and game.eat_gun(global_position + Vector3(0, Chest.world_size().y, 0)):
+		_chomp()
+		return
+	# va con la boca hacia vos: que el arma le quede en la boca
+	var target := gun.global_position - (_mouth_cs.position + Vector3(-_facing * 0.4, -0.2, 0))
 	var to := target - global_position
 	to.z = 0.0
 	if to.length() > 40.0 or _t > 25.0: # se cansó

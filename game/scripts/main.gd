@@ -56,8 +56,19 @@ var _sky_mat: ProceduralSkyMaterial
 var _sky_day := {}
 var _stars_mat: StandardMaterial3D
 var space_t := 0.0 # 0 = cielo violeta, 1 = espacio (negro con estrellas)
-var special_ends: Array = [] # [{x, kind}] fin de cada nivel especial ya generado
+var special_zones: Array = [] # niveles especiales ya generados que todavía no empezaron
+var special_zone := {} # el nivel especial en curso ({} = ninguno): {kind, x0, x1, total, points, lights, hurt, broken}
 var specials_done := 0
+var _gen_zone := {} # el nivel especial que se está generando (todavía sin final)
+var _chaser: Chaser
+var _boss: Boss
+var _env: Environment
+var _sun: DirectionalLight3D
+var _gun_lamp: OmniLight3D
+var _gun_torch: SpotLight3D
+var _dark_t := 0.0 # 0 = normal, 1 = apagón
+var _tint_t := 0.0
+var _tint := {"top": Color.BLACK, "hor": Color.BLACK}
 var fan_ride := 0.0 # > 0 mientras un ventilador te sube (lo renueva en cada paso)
 var sky_spawned := 0
 var _sky_progress := 0.0 # metros recorridos (adelante o arriba) desde el último bicho
@@ -78,6 +89,7 @@ var market_offers: Array = [] # lo que ofrece la bañadera en esta visita
 var bought_this_run := 0 # cada compra encarece las siguientes (en esta partida)
 var _bought_visit: Array = [] # lo que compraste en esta visita al mercado
 var revived := false
+var eaten := false # el cofre trampa te comió: se ve cómo cierra la boca y perdés
 var _float_pos := Vector3(Level.START.x, Level.START.y, 0.0) # dónde flota el arma antes del primer tiro
 
 
@@ -108,6 +120,23 @@ func _ready() -> void:
 	gun.global_position = Vector3(Level.START.x, Level.START.y, 0.0)
 	gun.landed.connect(func(speed: float): sfx.play("land", linear_to_db(clampf(speed / 10.0, 0.15, 1.0))))
 	_build_laser()
+	# en el apagón: una luz tenue sobre el arma (del lado de la cámara, para que
+	# se vea) y una linterna que alumbra hacia donde apunta el cañón
+	_gun_lamp = OmniLight3D.new()
+	_gun_lamp.light_color = Color("ffe7b0")
+	_gun_lamp.omni_range = 6.0
+	_gun_lamp.light_energy = 0.0
+	_gun_lamp.position = Vector3(0, 0.3, 1.6)
+	gun.add_child(_gun_lamp)
+	_gun_torch = SpotLight3D.new()
+	_gun_torch.light_color = Color("fff1c8")
+	_gun_torch.spot_range = 11.0
+	_gun_torch.spot_angle = 22.0
+	_gun_torch.spot_attenuation = 0.8
+	_gun_torch.light_energy = 0.0
+	_gun_torch.rotation.y = -PI / 2.0 # la luz sale por -Z: así sale por +X (el cañón)
+	_gun_torch.position = Vector3(0.3, 0, 0.3)
+	gun.add_child(_gun_torch)
 
 	_stream_world(Level.START.x)
 
@@ -183,7 +212,7 @@ func restart() -> void:
 # --- disparo ---
 
 func shoot() -> void:
-	if state == State.OVER:
+	if state == State.OVER or eaten:
 		return
 	var first := state == State.READY
 	if first:
@@ -362,6 +391,10 @@ func _threats() -> Array:
 			continue
 		var kind := "Rocket" if n is Rocket else ("Airplane" if n is Airplane else "Ufo")
 		out.append({"at": camera.unproject_position(p), "color": THREAT_COLORS[kind], "near": 1.0 - dist / Config.ARROW_RANGE})
+	if _chaser and not _chaser.done: # la boca gigante de la persecución
+		var mp := Vector3(_chaser.front_x, gp.y, 0.0)
+		if not camera.is_position_in_frustum(mp):
+			out.append({"at": camera.unproject_position(mp), "color": THREAT_COLORS.Rocket, "near": clampf(1.0 - (gp.x - mp.x) / Config.CHASE_MAX_GAP, 0.3, 1.0)})
 	return out
 
 
@@ -376,7 +409,8 @@ func _raycast(from: Vector3, to: Vector3, exclude: Array = []) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
-const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill", "padlock_kill", "ufo_kill"]
+const KILL_RESULTS := ["headshot", "kill", "flyer_kill", "mimic_kill", "chest_kill", "plane_kill", "rocket_kill", "padlock_kill", "ufo_kill",
+	"target_hit", "boss_hit", "boss_kill"]
 
 
 ## Aplica el resultado de un tiro. Devuelve true si mató algo.
@@ -427,6 +461,35 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 				_power_pending = true
 			else:
 				hud.popup_world(camera, above, "+%d" % reward, "headshot")
+		"target_hit":
+			var pts: int = res.get("points", 1)
+			if special_zone.get("kind", "") == "gallery":
+				special_zone.points += pts
+			_fx_puff(point, Color("f4f1ea"), 12, 0.6, false)
+			if pts >= 2:
+				hud.popup_world(camera, above, "¡CENTRO! +2", "headshot")
+				sfx.play("headshot")
+			else:
+				hud.popup_world(camera, above, "+1", "")
+				sfx.play("clank", -2.0, 1.4)
+		"boss_hit":
+			if special_zone.get("kind", "") == "boss":
+				special_zone.broken += 1
+			hud.popup_world(camera, above, "¡FALTAN %d!" % res.get("left", 0), "headshot")
+			sfx.play("headshot")
+		"boss_kill":
+			kills += 1
+			if special_zone.get("kind", "") == "boss":
+				special_zone.broken += 1
+			explosion_fx(point)
+			hud.special_banner("¡JEFE DERROTADO!", reward)
+			sfx.play("fanfare")
+		"firefly":
+			if special_zone.get("kind", "") == "blackout":
+				special_zone.lights += 1
+			_fx_puff(point, Color("eaff8a"), 14, 0.6, false)
+			hud.popup_world(camera, above, "+%d" % reward, "headshot")
+			sfx.play("coin")
 		"trap_open":
 			hud.popup_world(camera, above, "¡TRAMPA!", "hurt")
 			sfx.play("chomp")
@@ -450,9 +513,11 @@ func power_on(power: String) -> bool:
 ## Un golpe: te saca balas (las balas son la vida). Sin balas, un golpe te mata.
 ## knock: velocidad nueva del arma (cero = no empuja); spin: giro que se suma.
 func hurt(amount: int, from: Vector3, knock := Vector2.ZERO, spin := 0.0, _cause := "") -> void:
-	if state != State.PLAYING or power_on("untouchable") or _hurt_cd > 0.0:
+	if eaten or state != State.PLAYING or power_on("untouchable") or _hurt_cd > 0.0:
 		return
 	_hurt_cd = Config.HURT_COOLDOWN
+	if not special_zone.is_empty():
+		special_zone.hurt = true
 	if knock != Vector2.ZERO or spin != 0.0:
 		var v := Vector3(knock.x, knock.y, 0.0) if knock != Vector2.ZERO else gun.linear_velocity
 		gun.knock(v, spin)
@@ -558,13 +623,103 @@ func spawn_pickup(kind: String, pos: Vector3, vel: Vector3, floating := false) -
 	return p
 
 
-## Pasaste un nivel especial: cartel, confeti y balas extra.
-func _special_done() -> void:
+# --- niveles especiales ---
+
+const SPECIAL_INFO := {
+	"chase": {"name": "PERSECUCIÓN", "goal": "¡QUE NO TE ALCANCE!", "top": Color("ff5a3a"), "hor": Color("ffc0a0"), "ui": Color("ff7a5a")},
+	"gallery": {"name": "GALERÍA DE TIRO", "goal": "PEGALE A LAS DIANAS\nAL CENTRO VALE DOBLE", "top": Color("ffb21a"), "hor": Color("fff1b8"), "ui": Color("ffcf3a")},
+	"blackout": {"name": "APAGÓN", "goal": "LAS LUCECITAS DAN BALAS\nQUE NO TE TOQUEN", "top": Color("000000"), "hor": Color("05030c"), "ui": Color("b48cff")},
+	"boss": {"name": "JEFE", "goal": "ROMPÉ SUS 3\nPUNTOS DÉBILES ROJOS", "top": Color("2f4a78"), "hor": Color("a9bfdc"), "ui": Color("6fd0ff")},
+}
+
+
+func _update_specials(p: Vector3) -> void:
+	if special_zone.is_empty():
+		if not special_zones.is_empty() and state == State.PLAYING and p.x >= special_zones[0].x0:
+			_special_start(special_zones.pop_front())
+		return
+	if state != State.PLAYING and state != State.READY:
+		return
+	hud.set_special_info(_special_text(p))
+	if p.x > special_zone.x1:
+		_special_finish()
+
+
+## Entrás a un nivel especial: cartel con el nombre y el objetivo, el cielo cambia.
+func _special_start(z: Dictionary) -> void:
+	special_zone = z
+	var info: Dictionary = SPECIAL_INFO[z.kind]
+	_tint = {"top": info.top, "hor": info.hor}
+	match z.kind:
+		"chase":
+			_chaser = Chaser.new()
+			_chaser.game = self
+			_chaser.start_x = gun.global_position.x
+			_chaser.end_x = z.x0 + Level.SPECIAL_LEN.chase
+			_chaser.front_x = gun.global_position.x - Config.CHASE_START_GAP
+			add_child(_chaser)
+	hud.special_intro(info.name, info.goal, info.ui)
+	hud.set_special_info(_special_text(gun.global_position))
+	sfx.play("fanfare", -4.0, 0.8)
+
+
+func _special_text(p: Vector3) -> String:
+	var z := special_zone
+	match z.kind:
+		"chase":
+			var end: float = z.x0 + Level.SPECIAL_LEN.chase
+			return "¡CORRÉ! FALTAN %d m" % maxi(0, ceili(end - p.x))
+		"gallery":
+			return "PUNTOS: %d DE %d" % [z.points, z.total * 2]
+		"blackout":
+			return "LUCES: %d · %s" % [z.lights, "TE TOCARON" if z.hurt else "SIN GOLPES"]
+		"boss":
+			return "JEFE: %d DE 3" % z.broken
+	return ""
+
+
+## Saliste del nivel especial: premio según cómo te fue.
+func _special_finish() -> void:
+	var z := special_zone
+	special_zone = {}
+	hud.set_special_info("")
+	if _chaser:
+		_chaser.done = true
+		get_tree().create_timer(3.0).timeout.connect(_chaser.queue_free)
+		_chaser = null
+	if state != State.PLAYING and state != State.READY:
+		return
 	specials_done += 1
-	ammo += Config.SPECIAL_REWARD
-	hud.bump_ammo()
-	hud.special_banner(Config.SPECIAL_REWARD)
-	sfx.play("fanfare")
+	match z.kind:
+		"chase":
+			_special_result("¡ESCAPASTE!", Config.CHASE_REWARD)
+		"gallery":
+			var frac: float = float(z.points) / maxf(z.total * 2.0, 1.0)
+			for medal in Config.GALLERY_MEDALS:
+				if frac >= medal[0]:
+					_special_result("¡%s!" % medal[1], medal[2])
+					return
+			_special_result("SIN MEDALLA", 0)
+		"blackout":
+			_special_result("¡INTOCADO!" if not z.hurt else "TE TOCARON", Config.BLACKOUT_REWARD if not z.hurt else 0)
+		# el jefe da su premio cuando lo matás
+
+
+func _special_result(title: String, reward: int) -> void:
+	if reward > 0:
+		ammo += reward
+		hud.bump_ammo()
+		sfx.play("fanfare")
+	else:
+		sfx.play("empty")
+	hud.special_banner(title, reward)
+
+
+## El jefe tira un cohete desde el brazo.
+func boss_rocket(at: Vector3) -> void:
+	_spawn_item({"type": "rocket", "x": at.x, "y": at.y})
+	entities[-1].set_meta("seen", true)
+	sfx.play("engine", -8.0)
 
 
 func explosion_fx(at: Vector3) -> void:
@@ -756,10 +911,7 @@ func _process(delta: float) -> void:
 		max_height = maxi(max_height, floori(p.y))
 	max_ammo = maxi(max_ammo, ammo)
 	_stream_world(p.x)
-	if not special_ends.is_empty() and p.x > special_ends[0].x:
-		special_ends.pop_front()
-		if state == State.PLAYING:
-			_special_done()
+	_update_specials(p)
 	fan_ride -= real_dt
 	if state == State.PLAYING and fan_ride <= 0.0: # la subida en ventilador es limpia
 		_sky_spawner(p)
@@ -778,7 +930,7 @@ func _process(delta: float) -> void:
 	if state == State.PLAYING:
 		_check_game_over(real_dt, p)
 
-	_flash_light.light_energy *= exp(-delta * 40.0)
+	_flash_light.light_energy *= exp(-delta * lerpf(40.0, 7.0, _dark_t)) # a oscuras dura más
 	_update_camera(real_dt)
 	_update_space(p, real_dt)
 	for r in _rocks:
@@ -799,6 +951,8 @@ func _process(delta: float) -> void:
 
 
 func _check_game_over(real_dt: float, p: Vector3) -> void:
+	if eaten:
+		return
 	if p.y < Level.low_top_around(blocks, p.x) - FALL_MARGIN: # se cayó en un hueco
 		_game_over("¡TE CAÍSTE!")
 		return
@@ -813,12 +967,33 @@ func _check_game_over(real_dt: float, p: Vector3) -> void:
 		_game_over("SIN BALAS")
 
 
-func _game_over(title: String) -> void:
-	if state == State.PLAYING and Records.stat("insurance") > 0:
+## El cofre trampa te metió en la boca: la cierra y perdés. Sin vueltas (ni seguro
+## de vida). Solo te salva el poder intocable. Devuelve true si te comió.
+func eat_gun(at: Vector3) -> bool:
+	if eaten or state != State.PLAYING or power_on("untouchable"):
+		return false
+	eaten = true
+	_queued_shots = 0
+	gun.freeze = true
+	gun.linear_velocity = Vector3.ZERO
+	gun.angular_velocity = Vector3.ZERO
+	gun.visible = false
+	sfx.play("chomp")
+	hud.flash_hurt()
+	hud.popup_world(camera, at + Vector3(0, 1.5, 0), "¡ÑAM!", "hurt")
+	get_tree().create_timer(0.9, true, false, true).timeout.connect(func():
+		if state == State.PLAYING:
+			_game_over("¡TE COMIÓ!", true))
+	return true
+
+
+func _game_over(title: String, final := false) -> void:
+	if not final and state == State.PLAYING and Records.stat("insurance") > 0:
 		_revive()
 		return
 	state = State.OVER
 	_over_at_ms = Time.get_ticks_msec()
+	hud.set_special_info("")
 	sfx.play("game_over")
 	powers.clear()
 	gun.set_glow(null)
@@ -862,6 +1037,19 @@ func _update_camera(real_dt: float) -> void:
 		goal.x = maxf(goal.x, minf((left + right) / 2.0, left + want_width / 2.0))
 		goal.y = maxf((p.y + landing.top) / 2.0, minf(p.y, landing.top)) + 1.6
 
+	# Niveles especiales: en la persecución la cámara mira para atrás (se ve la boca
+	# que te sigue); con el jefe se aleja para que entre el robot entero.
+	match special_zone.get("kind", ""):
+		"chase":
+			if _chaser:
+				want_width = maxf(want_width, 12.0)
+				goal.x = (p.x + maxf(_chaser.front_x, p.x - 10.0)) / 2.0 + 1.0
+		"boss":
+			if is_instance_valid(_boss) and _boss.alive and _boss.global_position.x - p.x < 30.0:
+				var bx: float = _boss.global_position.x
+				want_width = clampf(bx - p.x + 7.0, VISIBLE_WIDTH, 20.0)
+				goal.x = (p.x + bx) / 2.0
+				goal.y = maxf(goal.y, _boss.global_position.y + 6.5)
 	_cam_width = lerpf(_cam_width, want_width, 1.0 - exp(-real_dt * 3.0))
 	var dist := maxf(_cam_width / 2.0 / (t * aspect), MIN_VISIBLE_HEIGHT / 2.0 / t)
 	_cam_target = _cam_target.lerp(goal, 1.0 - exp(-real_dt * 5.0))
@@ -912,6 +1100,7 @@ func _build_environment() -> void:
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color("9a8fc0")
 	env.ambient_light_energy = 0.3
+	_env = env
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -922,6 +1111,7 @@ func _build_environment() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 40.0
 	add_child(sun)
+	_sun = sun
 
 
 var _block_mats: Array[StandardMaterial3D] = []
@@ -945,10 +1135,20 @@ func _stream_world(x: float) -> void:
 	_stream_x = maxf(_stream_x, x)
 	while blocks.is_empty() or blocks[-1].x1 < _stream_x + GEN_AHEAD:
 		var b := level.next_block()
-		if not blocks.is_empty() and blocks[-1].special != "" and b.special == "":
-			special_ends.append({"x": blocks[-1].x1, "kind": blocks[-1].special})
+		var prev: String = blocks[-1].special if not blocks.is_empty() else ""
+		if b.special != prev:
+			# (el final se anota en el mismo diccionario: puede que ya hayas entrado
+			# y esté en special_zone, no en special_zones)
+			if prev != "" and not _gen_zone.is_empty():
+				_gen_zone.x1 = blocks[-1].x1
+				_gen_zone = {}
+			if b.special != "":
+				_gen_zone = {"kind": b.special, "x0": b.x0, "x1": INF, "total": 0, "points": 0,
+					"lights": 0, "hurt": false, "broken": 0}
+				special_zones.append(_gen_zone)
 		_add_block(b)
 		for it in b.items:
+			it["zone"] = b.special
 			_spawn_item(it)
 	var limit := _stream_x - KEEP_BEHIND
 	while blocks.size() > 1 and blocks[0].x1 < limit:
@@ -994,7 +1194,12 @@ func _sky_spawner(p: Vector3) -> void:
 	else: # aparece adelante, cerca de tu altura
 		pos = Vector3(p.x + randf_range(Config.SKY_SPAWN_AHEAD.x, Config.SKY_SPAWN_AHEAD.y), p.y + randf_range(-2.0, 5.0), 0.0)
 	pos.y = maxf(pos.y, Level.top_at(blocks, pos.x) + 2.5) # nunca metido en el piso
-	var type := sky_type(p.y - Level.top_at(blocks, p.x))
+	var alt := p.y - Level.top_at(blocks, p.x)
+	if _air_market_ok(pos, alt) and randf() < Config.MARKET_AIR_CHANCE: # el mercado también vuela
+		_spawn_item({"type": "market_air", "x": pos.x, "y": minf(pos.y, p.y + 1.0) - 2.0})
+		sky_spawned += 1
+		return
+	var type := sky_type(alt)
 	if type == "ufo" and entities.filter(func(n): return is_instance_valid(n) and n is Ufo and n.alive).size() >= Config.UFO_MAX:
 		type = "astronaut" # los ovnis te persiguen: no más de UFO_MAX a la vez
 	if type == "astronaut": # vienen en grupito (a veces en fila: ideal para balas penetrantes)
@@ -1006,6 +1211,17 @@ func _sky_spawner(p: Vector3) -> void:
 	else:
 		_spawn_item({"type": type, "x": pos.x, "y": pos.y})
 	sky_spawned += 1
+
+
+## ¿Puede aparecer una bañadera voladora acá? Pasados MARKET_FROM m, en el aire,
+## y lejos de cualquier otra bañadera (del piso o del aire).
+func _air_market_ok(pos: Vector3, alt: float) -> bool:
+	if alt < Config.MARKET_AIR_ALT or pos.x - Level.START.x < Config.MARKET_FROM:
+		return false
+	for n in entities:
+		if is_instance_valid(n) and n is Tub and absf(n.global_position.x - pos.x) < Config.MARKET_MIN_GAP:
+			return false
+	return true
 
 
 ## Qué aparece según la altura sobre el piso.
@@ -1034,6 +1250,8 @@ func _spawn_item(it: Dictionary) -> void:
 			add_child(e)
 			e.global_position = pos + Vector3(0, 0.01, 0)
 			enemies.append(e)
+			if it.get("zone", "") == "blackout": # en la oscuridad solo se les ven los ojos
+				e.add_glow_eyes()
 			return
 		"ammo":
 			spawn_pickup("ammo", pos, Vector3.ZERO, true)
@@ -1061,6 +1279,21 @@ func _spawn_item(it: Dictionary) -> void:
 			n = Booster.new()
 		"market":
 			n = Tub.new()
+		"market_air":
+			var t := Tub.new()
+			t.floating = true
+			n = t
+		"firefly":
+			n = Firefly.new()
+		"target":
+			var tg := Target.new()
+			tg.mode = it.get("mode", "ground")
+			n = tg
+			if not special_zones.is_empty() and it.get("zone", "") == "gallery":
+				special_zones[-1].total += 1
+		"boss":
+			_boss = Boss.new()
+			n = _boss
 		"rocket":
 			n = Rocket.new()
 		"padlock":
@@ -1141,6 +1374,9 @@ func _prewarm() -> void:
 		var e := Enemy.new()
 		e.kind = k
 		holder.add_child(e)
+	holder.add_child(Boss.new())
+	holder.add_child(Target.new())
+	holder.add_child(Firefly.new())
 	for k in ["hawk", "bat"]:
 		var f := Flyer.new()
 		f.kind = k
@@ -1189,6 +1425,20 @@ func _update_space(p: Vector3, real_dt: float) -> void:
 	_sky_mat.sky_horizon_color = _sky_day.hor.lerp(Color("120a24"), space_t)
 	_sky_mat.ground_horizon_color = _sky_day.ghor.lerp(Color("120a24"), space_t)
 	_sky_mat.ground_bottom_color = _sky_day.gbot.lerp(night, space_t)
+	# nivel especial: el cielo toma su color (y en el apagón, todo a oscuras)
+	var k := 1.0 - exp(-real_dt * 1.5)
+	_tint_t = lerpf(_tint_t, 0.0 if special_zone.is_empty() else 1.0, k)
+	_dark_t = lerpf(_dark_t, 1.0 if special_zone.get("kind", "") == "blackout" else 0.0, k)
+	if _tint_t > 0.001:
+		_sky_mat.sky_top_color = _sky_mat.sky_top_color.lerp(_tint.top, _tint_t)
+		_sky_mat.sky_horizon_color = _sky_mat.sky_horizon_color.lerp(_tint.hor, _tint_t)
+		_sky_mat.ground_horizon_color = _sky_mat.ground_horizon_color.lerp(_tint.hor, _tint_t)
+		_sky_mat.ground_bottom_color = _sky_mat.ground_bottom_color.lerp(_tint.top, _tint_t)
+	_env.ambient_light_energy = lerpf(0.3, 0.05, _dark_t)
+	_sun.light_energy = lerpf(1.1, 0.0, _dark_t)
+	_gun_lamp.light_energy = lerpf(0.0, 1.6, _dark_t)
+	_gun_torch.light_energy = lerpf(0.0, 2.2, _dark_t)
+	_flash_light.omni_range = lerpf(6.0, 13.0, _dark_t) # el fogonazo ilumina más lejos
 	_stars_mat.albedo_color.a = smoothstep(0.3, 1.0, space_t)
 	gun.gravity_scale = lerpf(1.0, Config.SPACE_GRAVITY, space_t) * gun.weight
 	camera.get_node("Stars").visible = space_t > 0.05

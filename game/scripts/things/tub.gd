@@ -3,12 +3,13 @@ extends StaticBody3D
 ## Bañadera con billetes: el mercado. Si el arma se queda adentro más de
 ## MARKET_STAY segundos, se abre el mercado (una sola vez por bañadera).
 ## Es piso: el arma choca con el fondo y los bordes, y no rebota (billetes).
-## Origen: abajo al centro, apoyada en el piso.
+## Origen: abajo al centro, apoyada en el piso. Si floating, cuelga de globos en el aire.
 
 const WALL := 0.16
 const BILLS := 0.3 # colchón de billetes: el arma queda apoyada encima (se ve)
 
 var game: Node
+var floating := false
 var used := false
 var _inside: Area3D
 var _stay := 0.0
@@ -41,6 +42,8 @@ func _ready() -> void:
 	_inside.add_child(cs)
 	add_child(_inside)
 	_build_mesh(feet)
+	if floating:
+		_build_balloons(feet)
 
 
 func _shape(size: Vector3, pos: Vector3) -> void:
@@ -56,6 +59,11 @@ func _physics_process(delta: float) -> void:
 	if used or game == null:
 		return
 	_bills.rotation.y = sin(Time.get_ticks_msec() / 600.0) * 0.04
+	if floating:
+		for i in 4:
+			var b := get_node_or_null("Balloon%d" % i) as Node3D
+			if b:
+				b.rotation.z = sin(Time.get_ticks_msec() / 700.0 + b.get_meta("bob")) * 0.12
 	if game.state != game.State.PLAYING or not _inside.overlaps_body(game.gun):
 		_stay = 0.0
 		return
@@ -130,6 +138,44 @@ func _build_mesh(feet: float) -> void:
 	_sign.no_depth_test = true
 	_sign.position = Vector3(0, feet + sz.y + 1.1, 0)
 	add_child(_sign)
+
+
+## Globos de colores atados a las cuatro esquinas (la bañadera voladora).
+func _build_balloons(feet: float) -> void:
+	var sz := Config.TUB_SIZE
+	var string_m := StandardMaterial3D.new()
+	string_m.albedo_color = Color("f4f1ea")
+	var cols := [Color("ff4d6d"), Color("4fd8ff"), Color("ffcf3a"), Color("7dff6b")]
+	var i := 0
+	for sx in [-1, 1]:
+		for zz in [-1, 1]:
+			var corner := Vector3(sx * (sz.x / 2.0 - 0.15), feet + sz.y, zz * (sz.z / 2.0 - 0.15))
+			var top := Vector3(sx * (sz.x / 2.0 + 0.5), feet + sz.y + 2.6 + i * 0.25, zz * 0.6)
+			var s := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.02
+			cm.bottom_radius = 0.02
+			cm.height = corner.distance_to(top)
+			cm.material = string_m
+			s.mesh = cm
+			s.position = (corner + top) / 2.0
+			s.basis = Basis(Quaternion(Vector3.UP, (top - corner).normalized()))
+			add_child(s)
+			var b := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 0.55
+			sm.height = 1.3
+			var m := StandardMaterial3D.new()
+			m.albedo_color = cols[i]
+			m.roughness = 0.2
+			sm.material = m
+			b.mesh = sm
+			b.position = top + Vector3(0, 0.6, 0)
+			b.set_meta("bob", i * 1.3)
+			b.name = "Balloon%d" % i
+			add_child(b)
+			i += 1
+	_sign.position.y += 2.8
 
 
 func _box(size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:

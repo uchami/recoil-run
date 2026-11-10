@@ -118,6 +118,23 @@ func kill(hit_point: Vector3, dir: Vector2) -> void:
 	apply_impulse(impulse, hit_point - global_position)
 
 
+## Ojos que brillan (en el apagón es lo único que se ve).
+func add_glow_eyes() -> void:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color("fff36b")
+	for d in [Vector3(-0.5, 0.15, 0.85), Vector3(-0.85, 0.15, 0.5)]: # sobre la cara, hacia la cámara
+		var eye := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.09
+		sm.height = 0.18
+		sm.material = m
+		eye.mesh = sm
+		eye.position = Vector3(0, HEAD_Y, 0) + d.normalized() * (HEAD_R - 0.02)
+		eye.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_vis.add_child(eye)
+
+
 func is_head_hit(global_point: Vector3) -> bool:
 	return to_local(global_point).y >= Config.NECK_Y
 
