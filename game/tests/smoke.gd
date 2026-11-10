@@ -62,6 +62,7 @@ func _run() -> void:
 	await test_unseen_rule()
 	await test_pierce()
 	await test_market()
+	await test_settings_panel()
 	await test_perks()
 	await test_pierce_slowmo()
 	await test_arrows()
@@ -1449,6 +1450,29 @@ func test_pierce() -> void:
 		else:
 			check(dead == 1, "normal: mata uno (%d)" % dead)
 		await despawn(m)
+
+
+## AJUSTES: los sliders van escondidos; PROBAR COFRE / TRAMPA pone uno apenas arrancás.
+func test_settings_panel() -> void:
+	print("ajustes")
+	var m := await spawn()
+	check(not m.hud._tune_physics.visible, "los sliders arrancan escondidos")
+	var labels: Array = m.hud._tune_panel.find_children("*", "Button", true, false).map(func(b): return b.text)
+	check("COFRE" in labels and "TRAMPA" in labels, "botones para probar el cofre y la trampa")
+	await despawn(m)
+	for kind in ["chest", "trap"]:
+		Level.debug_special = kind
+		m = await spawn()
+		var first := ""
+		var fx := 0.0
+		for b in m.blocks:
+			for it in b.items:
+				if first == "" and it.x > Level.START_X + Level.START_LEN: # (después del arranque)
+					first = it.type
+					fx = it.x
+		check(first == kind, "PROBAR %s: es lo primero que aparece (%s en x=%.0f)" % [kind, first, fx])
+		await despawn(m)
+	Level.debug_special = ""
 
 
 func test_market() -> void:

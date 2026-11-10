@@ -35,6 +35,7 @@ var _market_box: VBoxContainer
 var _arrows: Control
 var _arrow_pool: Array[Node2D] = []
 var _tune_sliders := {}
+var _tune_physics: VBoxContainer # los sliders (escondidos hasta tocar "FÍSICA")
 var _tune_labels := {}
 
 
@@ -293,11 +294,16 @@ func _build_tuning() -> void:
 	col.add_theme_constant_override("separation", 6)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(col)
+	# Los sliders de física van escondidos (abajo de todo, se abren con un botón).
+	var physics := VBoxContainer.new()
+	physics.add_theme_constant_override("separation", 6)
+	physics.visible = false
+	_tune_physics = physics
 	for spec in Tuning.SLIDERS:
 		var key: String = spec[0]
 		var l := Label.new()
 		l.add_theme_font_size_override("font_size", 32)
-		col.add_child(l)
+		physics.add_child(l)
 		var sl := HSlider.new()
 		sl.min_value = spec[2]
 		sl.max_value = spec[3]
@@ -316,14 +322,14 @@ func _build_tuning() -> void:
 		sl.add_theme_stylebox_override("slider", track)
 		sl.add_theme_stylebox_override("grabber_area", fill)
 		sl.add_theme_stylebox_override("grabber_area_highlight", fill)
-		col.add_child(sl)
+		physics.add_child(sl)
 		_tune_labels[key] = [l, spec[1]]
 		_tune_sliders[key] = sl
 		sl.value_changed.connect(func(v: float):
 			Tuning.set_value(key, v)
 			_refresh_tuning_labels()
 			tuning_changed.emit())
-	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["JEFE", "boss"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"]]],
+	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["JEFE", "boss"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"], ["COFRE", "chest"], ["TRAMPA", "trap"]]],
 			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
 		var t := Label.new()
 		t.text = spec[0]
@@ -343,19 +349,28 @@ func _build_tuning() -> void:
 				_tune_panel.visible = false
 				sig.emit(arg))
 			r.add_child(b)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 24)
-	col.add_child(row)
+	var close := _small_button("CERRAR", GOLD, INK)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(func(): _tune_panel.visible = false)
+	col.add_child(close)
+	var sep := Control.new()
+	sep.custom_minimum_size.y = 24
+	col.add_child(sep)
+	var toggle := _small_button("▸ FÍSICA (AVANZADO)", Color(1, 1, 1, 0.12), Color(1, 1, 1, 0.7))
+	toggle.add_theme_font_size_override("font_size", 26)
+	toggle.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	toggle.pressed.connect(func():
+		physics.visible = not physics.visible
+		toggle.text = ("▾" if physics.visible else "▸") + " FÍSICA (AVANZADO)")
+	col.add_child(toggle)
+	col.add_child(physics)
 	var reset := _small_button("VALORES INICIALES", GOLD, INK)
+	reset.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	reset.pressed.connect(func():
 		Tuning.reset()
 		_sync_tuning()
 		tuning_changed.emit())
-	row.add_child(reset)
-	var close := _small_button("CERRAR", GOLD, INK)
-	close.pressed.connect(func(): _tune_panel.visible = false)
-	row.add_child(close)
+	physics.add_child(reset)
 	_sync_tuning()
 
 

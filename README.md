@@ -109,13 +109,13 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 | Apagón (120 m) | Todo a oscuras: se ven los ojos de los enemigos, el arma (luz tenue + linterna hacia donde apunta) y lo que ilumina cada fogonazo. Hay lucecitas flotando que titilan: cada una que le pegás da +2 balas. Sin cascos | Cruzar sin que te toquen: +10 |
 | Jefe (50 m) | Robot gigante con un campo de fuerza detrás (no se pasa, ni por arriba). Tiene 3 puntos débiles rojos que laten (ojo, pecho, antena): un tiro a cualquiera lo rompe; en el blindaje rebota. Te tira cohetes. La cámara se aleja para que entre entero | Matarlo: +15 |
 
-En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete o mercado justo después del arranque) y
+En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque) y
 **PROBAR PODER** (te da el poder en el momento).
 
 Los sonidos se generan con `python3 tools/gen_sfx.py` (síntesis, sin dependencias).
 
 Los números del vuelo (gravedad, retroceso, giro, inercia, caída máxima, rebote, lift en piso y aire) se ajustan **en vivo desde el
-botón AJUSTES del juego** y quedan guardados en el teléfono; sus valores por defecto están en
+botón AJUSTES del juego** (abajo de todo, en "FÍSICA (AVANZADO)", escondidos hasta tocarlo) y quedan guardados en el teléfono; sus valores por defecto están en
 `game/scripts/tuning.gd`. El resto de los números fijos está en `game/scripts/config.gd`.
 
 | Archivo | Qué tiene |
