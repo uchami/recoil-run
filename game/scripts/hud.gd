@@ -329,7 +329,8 @@ func _build_tuning() -> void:
 			Tuning.set_value(key, v)
 			_refresh_tuning_labels()
 			tuning_changed.emit())
-	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["JEFE", "boss"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"], ["COFRE", "chest"], ["TRAMPA", "trap"]]],
+	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"], ["COFRE", "chest"], ["TRAMPA", "trap"]]],
+			["PROBAR JEFE", test_level, [["ROBOT", "boss:robot"], ["TOPO", "boss:mole"], ["ZEPELÍN", "boss:zeppelin"], ["MURALLA", "boss:wall"], ["DUELO", "boss:duel"]]],
 			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
 		var t := Label.new()
 		t.text = spec[0]

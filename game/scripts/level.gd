@@ -40,8 +40,10 @@ const SPECIAL_STEP := {"chase": 1.6, "gallery": 0.4, "blackout": 2.0} # escalone
 const GALLERY_SPACING := Vector2(6.5, 9.5)
 const BLACKOUT_SPACING := Vector2(5.0, 8.5)
 const CHASE_SPACING := Vector2(10.0, 16.0)
-const BOSS_ARENA := 34.0 # el robot va a BOSS_AT del principio de la arena
-const BOSS_AT := 24.0
+const BOSS_ARENA := 34.0 # cada jefe va a BOSS_AT[jefe] del principio de la arena
+const BOSSES := ["robot", "mole", "zeppelin", "wall", "duel"]
+const BOSS_AT := {"robot": 24.0, "mole": 19.0, "zeppelin": 20.0, "wall": 31.0, "duel": 20.0}
+const WALL_PIT := 4.5 # muralla: pozo antes de la arena (adonde te quiere tirar)
 
 ## Solo para probar: el próximo nivel arranca con este especial apenas termina el arranque.
 static var debug_special := ""
@@ -56,6 +58,9 @@ var _next_special_x: float = SPECIAL_FIRST
 var _special_end := 0.0
 var _special_bag: Array = []
 var _boss_done := false
+var boss_kind := "" # el jefe de este nivel especial
+var _boss_bag: Array = []
+var _force_boss := "" # solo para probar: este jefe
 var _force_lift := "" # solo para probar: "fan", "booster" o "market" apenas termina el arranque
 var _force_item := "" # solo para probar: "chest" o "trap" como primer ítem después del arranque
 var _last_market_x := -INF
@@ -70,6 +75,10 @@ func _init(seed_value: int = -1, force_special := "") -> void:
 		_force_lift = force_special
 	elif force_special in ["chest", "trap"]:
 		_force_item = force_special
+	elif force_special.begins_with("boss:"):
+		_next_special_x = START_X + START_LEN
+		_special_bag = ["boss"]
+		_force_boss = force_special.trim_prefix("boss:")
 	elif force_special != "":
 		_next_special_x = START_X + START_LEN
 		_special_bag = [force_special]
@@ -107,6 +116,8 @@ func _start_special() -> void:
 	_special_end = _x + SPECIAL_LEN[special]
 	_next_special_x = _special_end + SPECIAL_EVERY
 	_boss_done = false
+	if special == "boss":
+		boss_kind = _pick_boss()
 	_next_item_x = _x + 4.0
 
 
@@ -150,12 +161,32 @@ func _special_block() -> Dictionary:
 	return b
 
 
-## Jefe: una arena plana con el robot; después, la salida a la misma altura.
+## Qué jefe toca: no se repite hasta que salen todos.
+func _pick_boss() -> String:
+	if _force_boss != "":
+		var k := _force_boss
+		_force_boss = ""
+		return k
+	if _boss_bag.is_empty():
+		_boss_bag = BOSSES.duplicate()
+		for i in range(_boss_bag.size() - 1, 0, -1):
+			var j := rng.randi_range(0, i)
+			var tmp = _boss_bag[i]
+			_boss_bag[i] = _boss_bag[j]
+			_boss_bag[j] = tmp
+	return _boss_bag.pop_back()
+
+
+## Jefe: una arena plana con el jefe; después, la salida a la misma altura.
+## (La muralla tiene un pozo antes de la arena: te quiere empujar ahí.)
 func _boss_block() -> Dictionary:
 	if not _boss_done:
 		_boss_done = true
+		if boss_kind == "wall":
+			_x += WALL_PIT
 		var b := _finish_block(BOSS_ARENA, "boss")
-		b.items = [{"type": "boss", "x": b.x0 + BOSS_AT, "y": b.top}]
+		b.items = [{"type": "boss", "boss": boss_kind, "x": b.x0 + BOSS_AT[boss_kind], "y": b.top, "x0": b.x0}]
+		b["boss"] = boss_kind
 		return b
 	var b2 := _finish_block(_special_end - _x if _special_end - _x > 6.0 else 12.0, "boss")
 	b2.items = []

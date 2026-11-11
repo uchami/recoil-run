@@ -61,7 +61,7 @@ var special_zone := {} # el nivel especial en curso ({} = ninguno): {kind, x0, x
 var specials_done := 0
 var _gen_zone := {} # el nivel especial que se está generando (todavía sin final)
 var _chaser: Chaser
-var _boss: Boss
+var _boss: Node3D # el jefe del nivel (robot, topo, zepelín, muralla o duelo)
 var _env: Environment
 var _sun: DirectionalLight3D
 var _gun_lamp: OmniLight3D
@@ -289,7 +289,8 @@ func _step_bullet(b: Dictionary, step: float) -> void:
 		b.left -= travelled
 		step -= travelled
 		b.pos = hit.position
-		var c: Object = hit.collider
+		var col: Object = hit.collider # el cuerpo físico que tocó
+		var c: Object = col.get_meta("boss") if col != null and col.has_meta("boss") else col # (partes de un jefe: lo atiende el jefe)
 		if c == null or not c.has_method("shot"):
 			_fx_puff(hit.position, Color("55555f"), 8, 0.5, false) # piso
 			if b.bounces > 0: # balas que rebotan (mercado)
@@ -299,17 +300,17 @@ func _step_bullet(b: Dictionary, step: float) -> void:
 			return
 		# Regla: no se puede matar lo que todavía no apareció en pantalla (la bala pasa de largo).
 		if not _was_seen(c, hit.position):
-			b.exclude.append(c.get_rid())
+			b.exclude.append(col.get_rid())
 			continue
 		var res: Dictionary = c.shot(hit, b.dir2)
 		if res.get("result", "none") == "none": # ya estaba muerto: lo atraviesa
-			b.exclude.append(c.get_rid())
+			b.exclude.append(col.get_rid())
 			continue
 		if _on_hit(res, hit.position):
 			b.killed = true
 			b.kills += 1
 			if b.kills < b.max_kills: # penetrante: sigue volando
-				b.exclude.append(c.get_rid())
+				b.exclude.append(col.get_rid())
 				if b.kills >= 2:
 					hud.popup_world(camera, hit.position + Vector3(0, 1.2, 0), "x%d" % b.kills, "headshot")
 				if b.kills == Config.PIERCE_SLOWMO_KILLS: # festejo: cámara lenta
@@ -481,24 +482,13 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 			hud.popup_world(camera, above, "¡FALTAN %d!" % res.get("left", 0), "headshot")
 			sfx.play("headshot")
 		"boss_kill":
-			kills += 1
-			if special_zone.get("kind", "") == "boss":
-				special_zone.broken += 1
-			explosion_fx(point)
-			hud.special_banner("¡JEFE DERROTADO!", reward)
-			sfx.play("fanfare")
-			if trophy_laser: # ya la tenías: más balas
-				ammo += Config.BOSS_LASER_BONUS
-			trophy_laser = true
-			sfx.play("powerup")
-			hud.popup_world(camera, gun.global_position + Vector3(0, 1.4, 0), "¡MIRILLA LÁSER HASTA EL FINAL!", "headshot")
-			_refresh_perks()
+			boss_defeated(point, reward, false)
 		"firefly":
 			if special_zone.get("kind", "") == "blackout":
 				special_zone.lights += 1
 			_fx_puff(point, Color("eaff8a"), 14, 0.6, false)
 			hud.popup_world(camera, above, "+%d" % reward, "headshot")
-			sfx.play("coin")
+			sfx.play("pickup")
 		"trap_open":
 			hud.popup_world(camera, above, "¡TRAMPA!", "hurt")
 			sfx.play("chomp")
@@ -640,6 +630,14 @@ const SPECIAL_INFO := {
 	"blackout": {"name": "APAGÓN", "goal": "LAS LUCECITAS DAN BALAS\nQUE NO TE TOQUEN", "top": Color("000000"), "hor": Color("05030c"), "ui": Color("b48cff")},
 	"boss": {"name": "JEFE", "goal": "ROMPÉ SUS 3\nPUNTOS DÉBILES ROJOS", "top": Color("2f4a78"), "hor": Color("a9bfdc"), "ui": Color("6fd0ff")},
 }
+## Nombre y objetivo de cada jefe (el cielo y los colores son los de "boss").
+const BOSS_INFO := {
+	"robot": {"name": "JEFE: ROBOT", "goal": "ROMPÉ SUS 3\nPUNTOS DÉBILES ROJOS"},
+	"mole": {"name": "JEFE: TOPO GIGANTE", "goal": "PEGALE EN LA NARIZ\nCUANDO SALE DEL POZO"},
+	"zeppelin": {"name": "JEFE: ZEPELÍN", "goal": "PINCHÁ SUS 4\nBOLSAS DE GAS ROJAS"},
+	"wall": {"name": "JEFE: LA MURALLA", "goal": "ROMPÉ LOS LADRILLOS Y PASALA\nANTES DE QUE TE TIRE AL POZO"},
+	"duel": {"name": "JEFE: DUELO", "goal": "PEGALE 3 VECES\nAL ARMA ROJA"},
+}
 
 
 func _update_specials(p: Vector3) -> void:
@@ -665,7 +663,9 @@ func _update_specials(p: Vector3) -> void:
 ## Entrás a un nivel especial: cartel con el nombre y el objetivo, el cielo cambia.
 func _special_start(z: Dictionary) -> void:
 	special_zone = z
-	var info: Dictionary = SPECIAL_INFO[z.kind]
+	var info: Dictionary = SPECIAL_INFO[z.kind].duplicate()
+	if z.kind == "boss":
+		info.merge(BOSS_INFO.get(z.get("boss", ""), {}), true)
 	_tint = {"top": info.top, "hor": info.hor}
 	match z.kind:
 		"chase":
@@ -691,7 +691,9 @@ func _special_text(p: Vector3) -> String:
 		"blackout":
 			return "LUCES: %d · %s" % [z.lights, "TE TOCARON" if z.hurt else "SIN GOLPES"]
 		"boss":
-			return "JEFE: %d DE 3" % z.broken
+			if is_instance_valid(_boss) and _boss.has_method("info_text"):
+				return _boss.info_text()
+			return "JEFE: %d DE %d" % [z.broken, _boss.get("total") if is_instance_valid(_boss) else 3]
 	return ""
 
 
@@ -794,6 +796,42 @@ func _abduct_release() -> void:
 
 func _booster_holding() -> bool:
 	return entities.any(func(n): return is_instance_valid(n) and n is Booster and n.launched and not n._released)
+
+
+## Mataste (o pasaste) al jefe: festejo, +premio (si add_reward) y mirilla láser
+## larga hasta el final de la partida (si ya la tenías, más balas).
+func boss_defeated(point: Vector3, reward: int, add_reward := true) -> void:
+	kills += 1
+	if special_zone.get("kind", "") == "boss":
+		special_zone.broken += 1
+	explosion_fx(point)
+	hud.special_banner("¡JEFE DERROTADO!", reward)
+	sfx.play("fanfare")
+	if add_reward:
+		ammo += reward
+	if trophy_laser: # ya la tenías: más balas
+		ammo += Config.BOSS_LASER_BONUS
+	hud.bump_ammo()
+	trophy_laser = true
+	sfx.play("powerup")
+	hud.popup_world(camera, gun.global_position + Vector3(0, 1.4, 0), "¡MIRILLA LÁSER HASTA EL FINAL!", "headshot")
+	_refresh_perks()
+
+
+## ¿Se ve en pantalla? (los jefes no disparan desde afuera)
+func on_screen(pos: Vector3) -> bool:
+	return camera.is_position_in_frustum(pos)
+
+
+## Lo que tiran los jefes: piedra (topo), bomba (zepelín), bala (arma rival).
+func boss_shoot(kind: String, at: Vector3, vel: Vector3) -> void:
+	var s := BossShot.new()
+	s.kind = kind
+	s.vel = vel
+	s.game = self
+	add_child(s)
+	s.global_position = at
+	entities.append(s)
 
 
 ## El jefe tira un cohete desde el brazo.
@@ -1129,10 +1167,10 @@ func _update_camera(real_dt: float) -> void:
 				goal.x = (p.x + maxf(_chaser.front_x, p.x - 10.0)) / 2.0 + 1.0
 		"boss":
 			if is_instance_valid(_boss) and _boss.alive and _boss.global_position.x - p.x < 30.0:
-				var bx: float = _boss.global_position.x
-				want_width = clampf(bx - p.x + 7.0, VISIBLE_WIDTH, 20.0)
-				goal.x = (p.x + bx) / 2.0
-				goal.y = maxf(goal.y, _boss.global_position.y + 6.5)
+				var right: float = _boss.global_position.x + _boss.cam_right
+				want_width = clampf(right - p.x + 7.0, VISIBLE_WIDTH, GAP_CAM_MAX_WIDTH)
+				goal.x = (p.x + right) / 2.0
+				goal.y = maxf(goal.y, _boss.global_position.y + _boss.cam_height)
 	_cam_width = lerpf(_cam_width, want_width, 1.0 - exp(-real_dt * 3.0))
 	var dist := maxf(_cam_width / 2.0 / (t * aspect), MIN_VISIBLE_HEIGHT / 2.0 / t)
 	_cam_target = _cam_target.lerp(goal, 1.0 - exp(-real_dt * 5.0))
@@ -1227,7 +1265,7 @@ func _stream_world(x: float) -> void:
 				_gen_zone = {}
 			if b.special != "":
 				_gen_zone = {"kind": b.special, "x0": b.x0, "x1": INF, "total": 0, "points": 0,
-					"lights": 0, "hurt": false, "broken": 0}
+					"lights": 0, "hurt": false, "broken": 0, "boss": b.get("boss", "")}
 				special_zones.append(_gen_zone)
 		_add_block(b)
 		for it in b.items:
@@ -1375,7 +1413,19 @@ func _spawn_item(it: Dictionary) -> void:
 			if not special_zones.is_empty() and it.get("zone", "") == "gallery":
 				special_zones[-1].total += 1
 		"boss":
-			_boss = Boss.new()
+			match it.get("boss", "robot"):
+				"mole":
+					_boss = Mole.new()
+				"zeppelin":
+					_boss = Zeppelin.new()
+				"wall":
+					var w := BrickWall.new()
+					w.stop_x = it.get("x0", it.x - 30.0) + BrickWall.BRICK.x / 2.0
+					_boss = w
+				"duel":
+					_boss = Duel.new()
+				_:
+					_boss = Boss.new()
 			n = _boss
 		"rocket":
 			n = Rocket.new()
@@ -1457,7 +1507,8 @@ func _prewarm() -> void:
 		var e := Enemy.new()
 		e.kind = k
 		holder.add_child(e)
-	holder.add_child(Boss.new())
+	for n in [Boss.new(), Mole.new(), Zeppelin.new(), BrickWall.new(), Duel.new(), BossShot.new()]:
+		holder.add_child(n)
 	holder.add_child(Target.new())
 	holder.add_child(Firefly.new())
 	holder.add_child(Abductor.new())

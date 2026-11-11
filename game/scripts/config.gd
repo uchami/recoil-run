@@ -117,6 +117,15 @@ const ABDUCT_ALT := 12.0 # si llegás a un nivel especial más alto que esto, te
 const ABDUCT_LEAD := 6.0 # (se fija unos metros antes de que empiece)
 const BOSS_REWARD := 15 # lo mataste
 const BOSS_LASER_BONUS := 10 # si ya tenías la mirilla del jefe, en vez de eso te da estas balas
+const MOLE_UP_TIME := 1.8 # topo: lo que queda afuera del pozo
+const MOLE_HIDDEN_TIME := 0.7 # y escondido antes de salir de otro
+const ZEP_ALT := 8.0 # zepelín: altura a la que flota (baja ZEP_DROP por cada bolsa pinchada)
+const ZEP_DROP := 1.2
+const ZEP_BOMB_EVERY := 1.8
+const WALL_SPEED := 1.0 # muralla: m/s con los que avanza hacia vos
+const DUEL_FIRE_EVERY := 1.7 # arma rival: cada cuánto te dispara
+const DUEL_AIM_TIME := 0.45 # (aviso antes del tiro)
+const DUEL_BULLET_SPEED := 16.0
 const GALLERY_MEDALS := [[0.85, "ORO", 20], [0.6, "PLATA", 10], [0.35, "BRONCE", 5]] # [fracción de los puntos, medalla, balas]
 
 # Persecución: cofre trampa gigante que te persigue

@@ -15,11 +15,14 @@ const SPOTS := {
 
 var game: Node
 var alive := true
+var total := 3 # golpes para matarlo (lo que muestra el contador)
+var cam_height := 6.5 # la cámara sube para que entre entero
+var cam_right := 0.0
 var broken := {} # punto -> true
 var _fire_cd := 2.5
 var _spot_cs := {} # punto -> CollisionShape3D
 var _spot_vis := {} # punto -> MeshInstance3D (el núcleo rojo)
-var _wall: StaticBody3D
+var _wall: ForceField
 var _vis: Node3D
 var _t := 0.0
 var _glow: StandardMaterial3D
@@ -42,26 +45,8 @@ func _ready() -> void:
 		add_child(cs)
 		_spot_cs[k] = cs
 	# campo de fuerza detrás: no se pasa hasta matarlo
-	_wall = StaticBody3D.new()
-	_wall.collision_layer = Config.L_TERRAIN
-	_wall.collision_mask = 0
-	var wcs := CollisionShape3D.new()
-	var wb := BoxShape3D.new()
-	wb.size = Vector3(0.6, 80.0, 3.0)
-	wcs.shape = wb
-	wcs.position = Vector3(2.8, 40.0, 0)
-	_wall.add_child(wcs)
-	var field := MeshInstance3D.new()
-	var fm := BoxMesh.new()
-	fm.size = Vector3(0.15, 80.0, 0.1)
-	var fmat := StandardMaterial3D.new()
-	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	fmat.albedo_color = Color(0.4, 0.9, 1.0, 0.35)
-	fm.material = fmat
-	field.mesh = fm
-	field.position = Vector3(2.8, 40.0, 0)
-	_wall.add_child(field)
+	_wall = ForceField.new()
+	_wall.position = Vector3(2.8, 0, 0)
 	add_child(_wall)
 	_build_mesh()
 
@@ -128,7 +113,7 @@ func _break(k: String) -> void:
 func _die() -> void:
 	alive = false
 	set_deferred("collision_layer", 0)
-	_wall.set_deferred("collision_layer", 0)
+	_wall.open()
 	if game:
 		for i in 4:
 			get_tree().create_timer(0.18 * i).timeout.connect(func():
@@ -136,8 +121,7 @@ func _die() -> void:
 					game.explosion_fx(global_position + Vector3(randf_range(-2.0, 2.0), randf_range(2.0, 11.0), 0.5)))
 	var tw := create_tween()
 	tw.tween_interval(0.5)
-	tw.tween_property(_wall, "scale", Vector3(0.01, 1.0, 1.0), 0.3)
-	tw.parallel().tween_property(_vis, "rotation:z", -1.4, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(_vis, "rotation:z", -1.4, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(_vis, "position:y", -3.0, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_interval(1.0)
 	tw.tween_callback(queue_free)

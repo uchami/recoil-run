@@ -14,6 +14,14 @@ func _run() -> void:
 	Tuning.reset(false) # valores por defecto, ignora lo guardado desde el panel
 	Records.save_path = "user://test_save.cfg" # no pisar los récords reales
 	Records.reset()
+	# solo algunos tests: godot ... -s res://tests/smoke.gd -- test_boss_mole test_boss_wall
+	var only := OS.get_cmdline_user_args()
+	if not only.is_empty():
+		for name in only:
+			await call(name)
+		print("SMOKE OK" if failures == 0 else "SMOKE FAIL (%d)" % failures)
+		quit(1 if failures > 0 else 0)
+		return
 	await test_moon_airtime()
 	await test_recoil_asymmetric()
 	await test_headshot()
@@ -49,6 +57,11 @@ func _run() -> void:
 	await test_special_ends_while_inside()
 	await test_abduction()
 	await test_special_boss()
+	await test_boss_rotation()
+	await test_boss_mole()
+	await test_boss_zeppelin()
+	await test_boss_wall()
+	await test_boss_duel()
 	await test_camera_follows_high_flight()
 	await test_camera_gap_zoom_only_if_floor_visible()
 	await test_camera_bot_gameplay()
@@ -2006,7 +2019,7 @@ func test_special_blackout() -> void:
 
 func test_special_boss() -> void:
 	print("especial: jefe")
-	var m := await enter_special("boss")
+	var m := await enter_special("boss:robot")
 	var bosses: Array = m.entities.filter(func(n): return n is Boss)
 	check(bosses.size() == 1, "hay un robot")
 	var boss: Boss = bosses[0]
@@ -2041,4 +2054,205 @@ func test_special_boss() -> void:
 	await physics_frame
 	hit = m._raycast(Vector3(bp.x + 1.0, bp.y + 30.0, 0), Vector3(bp.x + 5.0, bp.y + 30.0, 0))
 	check(hit.is_empty(), "y se abre el paso")
+	await despawn(m)
+
+
+## Busca el jefe del nivel y lo deja listo para los tiros.
+func find_boss(m: Node, cls) -> Node:
+	var bs: Array = m.entities.filter(func(n): return is_instance_valid(n) and is_instance_of(n, cls))
+	if bs.is_empty():
+		return null
+	var b: Node = bs[0]
+	b.set_meta("seen", true)
+	return b
+
+
+func test_boss_rotation() -> void:
+	print("jefes: rotan sin repetirse")
+	var lv := Level.new(7)
+	var seen := []
+	var bs: Array = []
+	while seen.size() < Level.BOSSES.size() and (bs.is_empty() or bs[-1].x1 < 20000.0):
+		var b: Dictionary = lv.next_block()
+		bs.append(b)
+		if b.has("boss"):
+			seen.append(b.boss)
+	var uniq := {}
+	for k in seen:
+		uniq[k] = true
+	check(uniq.size() == Level.BOSSES.size() and seen.size() == Level.BOSSES.size(), "salen los %d jefes antes de repetir uno (%s)" % [Level.BOSSES.size(), seen])
+
+
+func test_boss_mole() -> void:
+	print("jefe: topo gigante")
+	var m := await enter_special("boss:mole")
+	var mole: Mole = find_boss(m, Mole)
+	check(mole != null and m.hud._special_info.visible, "hay un topo (%s)" % m.hud._special_info.text)
+	m.ammo = 30
+	m.powers.untouchable = 99.0
+	var t0 := Time.get_ticks_msec()
+	var threw := false
+	while Time.get_ticks_msec() - t0 < 6000 and not threw:
+		m.gun.global_position = Vector3(mole.global_position.x - 13.0, mole.global_position.y + 1.5, 0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+		threw = m.entities.any(func(n): return is_instance_valid(n) and n is BossShot and n.kind == "rock")
+	check(threw, "sale de un pozo y te tira una piedra")
+	mole.set_physics_process(false) # yo decido cuándo sale
+	for n in m.entities:
+		if is_instance_valid(n) and n is BossShot:
+			n.queue_free()
+	await wait_s(0.5)
+	var before: int = m.ammo
+	for i in mole.total:
+		mole._rise()
+		await wait_s(0.4)
+		var np := mole.nose_position()
+		if i == 0:
+			var bp: Vector3 = mole._body.global_position + Vector3(0, 0.6, 0)
+			await fire_at(m, Vector2(bp.x - 6.0, bp.y), bp)
+			check(mole.hits == 0 and mole.alive, "al cuerpo: rebota")
+			before = m.ammo
+		await fire_at(m, Vector2(np.x - 6.0, np.y), np)
+		m.kill_streak = 0
+		check(mole.hits == i + 1, "a la nariz: golpe %d" % (i + 1))
+		await wait_s(0.4)
+	check(not mole.alive, "%d golpes: lo mataste" % mole.total)
+	check(m.ammo == before - mole.total + Config.BOSS_REWARD, "+%d balas (%d)" % [Config.BOSS_REWARD, m.ammo])
+	await despawn(m)
+
+
+func test_boss_zeppelin() -> void:
+	print("jefe: zepelín")
+	var m := await enter_special("boss:zeppelin")
+	var z: Zeppelin = find_boss(m, Zeppelin)
+	check(z != null, "hay un zepelín")
+	m.ammo = 30
+	m.powers.untouchable = 99.0
+	var t0 := Time.get_ticks_msec()
+	var bombed := false
+	while Time.get_ticks_msec() - t0 < 4000 and not bombed:
+		m.gun.global_position = Vector3(z.global_position.x - 6.0, z.global_position.y + 1.5, 0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+		bombed = m.entities.any(func(n): return is_instance_valid(n) and n is BossShot and n.kind == "bomb")
+	check(bombed, "te tira bombas")
+	z.set_physics_process(false)
+	z._ship.position.x = 0.0
+	for n in m.entities:
+		if is_instance_valid(n) and n is BossShot:
+			n.queue_free()
+	await physics_frame
+	var hp := z.ship_position() + Vector3(0, 0.3, 0)
+	await fire_at(m, Vector2(hp.x - 1.0, hp.y - 6.0), hp + Vector3(-1.0, -1.0, 0)) # de abajo, al casco
+	check(z.popped.is_empty() and z.alive, "al casco: rebota")
+	var before: int = m.ammo
+	var from := {"front": Vector2(-7.0, 0.0), "top": Vector2(-5.0, 2.5), "bottom": Vector2(-3.0, -3.0), "back": Vector2(6.0, 0.0)}
+	for k in ["front", "top", "bottom", "back"]:
+		var bp := z.bag_position(k)
+		await fire_at(m, Vector2(bp.x + from[k].x, bp.y + from[k].y), bp)
+		m.kill_streak = 0
+		check(z.popped.has(k), "bolsa %s pinchada" % k)
+	check(not z.alive, "las 4 pinchadas: se cae")
+	check(m.ammo == before - 4 + Config.BOSS_REWARD, "+%d balas (%d)" % [Config.BOSS_REWARD, m.ammo])
+	# una bomba que te explota cerca: -3
+	m.powers.untouchable = 0.0
+	m._hurt_cd = 0.0
+	var g: float = Level.top_at(m.blocks, m.gun.global_position.x)
+	await place_gun(m, Vector2(m.gun.global_position.x, g + 0.6), 0.0)
+	before = m.ammo
+	m.boss_shoot("bomb", m.gun.global_position + Vector3(0.8, 2.0, 0), Vector3.ZERO)
+	await wait_s(1.0)
+	check(m.ammo == before - BossShot.BOMB_DAMAGE, "bomba cerca: -%d balas (%d -> %d)" % [BossShot.BOMB_DAMAGE, before, m.ammo])
+	await despawn(m)
+
+
+func test_boss_wall() -> void:
+	print("jefe: la muralla")
+	var m := await enter_special("boss:wall")
+	var w: BrickWall = find_boss(m, BrickWall)
+	check(w != null and m.hud._special_info.text.contains("POZO"), "hay una muralla (%s)" % m.hud._special_info.text)
+	m.powers.untouchable = 99.0
+	m.ammo = 30
+	var x0: float = w.global_position.x
+	var g: float = Level.top_at(m.blocks, x0)
+	await place_gun(m, Vector2(x0 - 8.0, g + 0.6), 0.0)
+	await wait_s(1.0)
+	check(w.global_position.x < x0 - 0.5, "avanza hacia vos (%.1f -> %.1f)" % [x0, w.global_position.x])
+	w.set_physics_process(false)
+	var wx: float = w.global_position.x
+	await fire_at(m, Vector2(wx - 5.0, g + 7.0), Vector3(wx, g + 7.0, 0))
+	check(w.broken == 0, "arriba es de acero: rebota")
+	for row in [0, 1]:
+		var bp := w.brick_position(row)
+		await fire_at(m, Vector2(wx - 4.0, bp.y), bp)
+		check(not w.has_brick(row), "ladrillo %d roto" % row)
+	var before: int = m.ammo
+	w.set_physics_process(true)
+	m.gun.freeze = true
+	m.gun.global_position = Vector3(wx + 1.5, g + 0.6, 0) # pasaste por el agujero
+	for i in 4:
+		await physics_frame
+	check(not w.alive, "la pasaste: ganaste")
+	check(m.ammo == before + Config.BOSS_REWARD and m.trophy_laser, "+%d balas y mirilla (%d)" % [Config.BOSS_REWARD, m.ammo])
+	await despawn(m)
+	# si no la pasás, te empuja al pozo
+	m = await enter_special("boss:wall")
+	w = find_boss(m, BrickWall)
+	g = Level.top_at(m.blocks, w.stop_x + 1.0)
+	w.global_position.x = w.stop_x + 2.2
+	await place_gun(m, Vector2(w.stop_x + 0.9, g + 0.5), 0.0)
+	var t0 := Time.get_ticks_msec()
+	while m.state == m.State.PLAYING and Time.get_ticks_msec() - t0 < 6000:
+		await physics_frame
+	check(m.state == m.State.OVER, "te empuja al pozo y perdés (y=%.1f)" % m.gun.global_position.y)
+	await despawn(m)
+
+
+func test_boss_duel() -> void:
+	print("jefe: duelo")
+	var m := await enter_special("boss:duel")
+	var d: Duel = find_boss(m, Duel)
+	check(d != null, "hay un arma rival")
+	m.powers.untouchable = 99.0
+	m.ammo = 30
+	var t0 := Time.get_ticks_msec()
+	var fired := false
+	while Time.get_ticks_msec() - t0 < 5000 and not fired:
+		var rp := d.rival_position()
+		m.gun.global_position = Vector3(rp.x - 8.0, rp.y + 1.0, 0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+		fired = m.entities.any(func(n): return is_instance_valid(n) and n is BossShot and n.kind == "bullet")
+	check(fired, "te apunta y te dispara")
+	d.set_physics_process(false)
+	for n in m.entities:
+		if is_instance_valid(n) and n is BossShot:
+			n.queue_free()
+	d.rival.position = Vector3(2.0, 3.0, 0)
+	await physics_frame
+	var before: int = m.ammo
+	for i in d.total:
+		d._blink = 0.0
+		var rp := d.rival_position()
+		await fire_at(m, Vector2(rp.x - 6.0, rp.y), rp)
+		m.kill_streak = 0
+		check(d.hits == i + 1, "golpe %d" % (i + 1))
+		if i == 0: # recién golpeada: invulnerable un ratito
+			await fire_at(m, Vector2(rp.x - 6.0, rp.y), rp)
+			check(d.hits == 1, "justo después del golpe: no cuenta")
+			before -= 1
+	check(not d.alive, "3 golpes: ganaste el duelo")
+	check(m.ammo == before - d.total + Config.BOSS_REWARD, "+%d balas (%d)" % [Config.BOSS_REWARD, m.ammo])
+	# su bala te saca 3
+	m.powers.untouchable = 0.0
+	m._hurt_cd = 0.0
+	var gx: float = m.gun.global_position.x
+	await place_gun(m, Vector2(gx, Level.top_at(m.blocks, gx) + 2.0), 0.0)
+	m.gun.freeze = true
+	await physics_frame
+	before = m.ammo
+	m.boss_shoot("bullet", m.gun.global_position + Vector3(3.0, 0, 0), Vector3(-Config.DUEL_BULLET_SPEED, 0, 0))
+	await wait_s(0.5)
+	check(m.ammo == before - BossShot.BULLET_DAMAGE, "su bala: -%d balas (%d)" % [BossShot.BULLET_DAMAGE, m.ammo])
 	await despawn(m)

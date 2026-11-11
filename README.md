@@ -108,10 +108,19 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 | Persecución (110 m) | Un cofre trampa gigante (más alto que la pantalla) te persigue, cada vez más rápido (3.2 → 5.2 m/s), y nunca queda a más de 10 m: si te frenás, te alcanza y **te come** (perdés, sin seguro). La cámara mira para atrás para que lo veas | Escapar: +10 |
 | Galería de tiro (110 m) | Dianas que asoman 2.6 s cuando te acercás (desde el piso, colgando o en globito). Al centro 2 puntos, al resto 1; cada acierto te devuelve la bala | Oro (85 % de los puntos) +20, plata (60 %) +10, bronce (35 %) +5 |
 | Apagón (120 m) | Todo a oscuras: se ven los ojos de los enemigos, el arma (luz tenue + linterna hacia donde apunta) y lo que ilumina cada fogonazo. Hay lucecitas flotando que titilan: cada una que le pegás da +2 balas. Sin cascos | Cruzar sin que te toquen: +10 |
-| Jefe (50 m) | Robot gigante con un campo de fuerza detrás (no se pasa, ni por arriba). Tiene 3 puntos débiles rojos que laten (ojo, pecho, antena): un tiro a cualquiera lo rompe; en el blindaje rebota. Te tira cohetes. La cámara se aleja para que entre entero | Matarlo: +15 y **mirilla láser larga hasta el final de la partida** (si ya la tenías, +10 balas más) |
+| Jefe (50 m) | Uno de 5 jefes (no se repiten hasta que salen todos), en una arena con un campo de fuerza detrás (no se pasa, ni por arriba). La cámara se aleja para que entre entero; no disparan desde fuera de pantalla. Ver la tabla de abajo | Ganarle: +15 y **mirilla láser larga hasta el final de la partida** (si ya la tenías, +10 balas más) |
 
-En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque) y
-**PROBAR PODER** (te da el poder en el momento).
+| Jefe | Cómo se le gana | Qué te hace |
+|---|---|---|
+| Robot | 3 puntos débiles rojos que laten (ojo, pecho, antena): un tiro a cualquiera lo rompe; en el blindaje rebota | Te tira cohetes |
+| Topo gigante | Sale de uno de 4 pozos 1.8 s con la nariz roja: 4 tiros a la nariz (en el cuerpo rebota) | Te tira piedras en arco (-2) |
+| Zepelín | Pinchale las 4 bolsas de gas rojas (adelante, arriba, abajo, atrás); cada una lo hace bajar. En el casco rebota | Te tira bombas (-3 si te explotan cerca) |
+| La muralla | Avanza hacia vos para tirarte al pozo que hay antes de la arena. Abajo es de ladrillos (un tiro rompe uno), arriba acero: abrile un agujero y pasala. Cada tiro para adelante te empuja para atrás | Te empuja al pozo (perdés) |
+| Duelo | Un arma roja que se mueve con retroceso igual que vos: pegale 3 veces (después de cada golpe parpadea y un ratito no cuenta) | Te apunta (línea finita) y te dispara (-3) |
+
+En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque),
+**PROBAR JEFE** (reinicia con ese jefe) y **PROBAR PODER** (te da el poder en el momento). Para correr solo algunos tests:
+`godot --headless --path . -s res://tests/smoke.gd -- test_boss_mole test_boss_wall`.
 
 Los sonidos se generan con `python3 tools/gen_sfx.py` (síntesis, sin dependencias).
 
@@ -127,7 +136,7 @@ botón AJUSTES del juego** (abajo de todo, en "FÍSICA (AVANZADO)", escondidos h
 | `scripts/records.gd` | Récords y leaderboard local |
 | `scripts/gun.gd` | Física del arma: retroceso asimétrico, lift, mirilla |
 | `scripts/enemy.gd` | Personaje (sin nada / espada / escudo / casco): cuerpo sólido vivo, ragdoll muerto |
-| `scripts/things/` | Resorte, murciélago y halcón, cofre (con candado) y cofre trampa, bañadera del mercado, balas sueltas y poderes; diana, robot jefe y boca de la persecución |
+| `scripts/things/` | Resorte, murciélago y halcón, cofre (con candado) y cofre trampa, bañadera del mercado, balas sueltas y poderes; diana, lucecitas del apagón, boca de la persecución, nave que te abduce; los jefes (robot, topo, zepelín, muralla, duelo), su campo de fuerza y lo que tiran |
 | `scripts/sfx.gd` | Sonidos |
 | `scripts/main.gd` | Mundo, disparo (balas que vuelan), regla de pantalla, reglas, mercado, cámara, slow-mo, efectos |
 | `scripts/hud.gd` | HUD y pantallas de inicio / game over |
