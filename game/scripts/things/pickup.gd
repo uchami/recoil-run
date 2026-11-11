@@ -66,9 +66,13 @@ func _process(delta: float) -> void:
 			_vis.visible = fmod(_life, 0.25) < 0.15 # titila antes de desaparecer
 	if game and not taken:
 		var gun: Node3D = game.gun
-		if gun.global_position.distance_to(global_position) < MAGNET_DIST:
+		var d := gun.global_position.distance_to(global_position)
+		if d < MAGNET_DIST:
 			freeze = true
 			global_position = global_position.lerp(gun.global_position, 1.0 - exp(-delta * 10.0))
+		elif d < Config.MAGNET_RANGE and game.power_on("magnet"): # poder imán: vienen a vos
+			freeze = true
+			global_position = global_position.move_toward(gun.global_position, 16.0 * delta)
 
 
 func _build_mesh() -> void:

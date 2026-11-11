@@ -84,6 +84,7 @@ func _run() -> void:
 	await test_market_air()
 	await test_power_streak()
 	await test_powers()
+	await test_space_rewards()
 	await test_hurt_without_ammo()
 	await test_special_levels()
 	await test_stress()
@@ -2255,4 +2256,97 @@ func test_boss_duel() -> void:
 	m.boss_shoot("bullet", m.gun.global_position + Vector3(3.0, 0, 0), Vector3(-Config.DUEL_BULLET_SPEED, 0, 0))
 	await wait_s(0.5)
 	check(m.ammo == before - BossShot.BULLET_DAMAGE, "su bala: -%d balas (%d)" % [BossShot.BULLET_DAMAGE, m.ammo])
+	await despawn(m)
+
+
+## Espacio: cometa dorado y poderes que solo salen ahí (dron, escopeta, imán).
+func test_space_rewards() -> void:
+	print("espacio: cometa y poderes del espacio")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var g: float = Level.top_at(m.blocks, 5.0)
+	await place_gun(m, Vector2(5.0, g + Config.UFO_ALT + 20.0), 0.0)
+	m.gun.freeze = true
+	m.fan_ride = 999.0 # sin bichos del cielo
+	check(m.in_space(), "arriba de %d m: estás en el espacio" % Config.UFO_ALT)
+	await wait_s(1.5) # (que la cámara llegue hasta acá)
+	# los cometas pasan solos
+	m._comet_cd = 0.0
+	for i in 4:
+		await process_frame
+	var comets: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Comet)
+	check(comets.size() == 1, "en el espacio pasa un cometa")
+	var c: Comet = comets[0]
+	await wait_s(0.5)
+	check(m.on_screen(c.global_position), "cruza la pantalla (se ve)")
+	c.set_physics_process(false)
+	c.set_meta("seen", true)
+	m.gun.freeze = false
+	m.ammo = 10
+	m.powers.clear()
+	var cp: Vector3 = c.global_position
+	await fire_at(m, Vector2(cp.x - 5.0, cp.y), cp)
+	check(not c.alive and m.ammo == 10 - 1 + Config.COMET_REWARD, "cometa: +%d balas (%d)" % [Config.COMET_REWARD, m.ammo])
+	check(m.powers.keys().any(func(k): return k in m.SPACE_POWERS), "y un poder del espacio (%s)" % [m.powers.keys()])
+	# los poderes del espacio solo salen arriba
+	var got := {}
+	for i in 60:
+		m.grant_power(m.gun.global_position)
+		got[m.last_power] = true
+	check(m.SPACE_POWERS.all(func(k): return got.has(k)), "en el espacio salen dron, escopeta e imán (%s)" % [got.keys()])
+	m.powers.clear()
+	if is_instance_valid(m._drone):
+		m._drone.queue_free()
+	await despawn(m)
+
+	m = await spawn()
+	clear_world(m)
+	await physics_frame
+	got = {}
+	for i in 60:
+		m.grant_power(m.gun.global_position)
+		got[m.last_power] = true
+	check(not m.SPACE_POWERS.any(func(k): return got.has(k)), "en el piso no salen (%s)" % [got.keys()])
+	m.powers.clear()
+	m._comet_cd = 0.0
+	await physics_frame
+	check(not m.entities.any(func(n): return is_instance_valid(n) and n is Comet), "y no pasan cometas")
+	# escopeta: 3 balas por tiro, gasta 1
+	m.ammo = 10
+	m._activate_power("shotgun", m.gun.global_position)
+	await place_gun(m, Vector2(3.0, g + 3.0), 0.0)
+	m._queued_shots = 1
+	await physics_frame
+	check(m.bullets.size() == 3 and m.ammo == 9, "escopeta: 3 balas por tiro (%d), gasta 1" % m.bullets.size())
+	await bullets_done(m)
+	m.powers.clear()
+	# imán: lo que matás suelta balas que vienen a vos
+	clear_world(m)
+	await physics_frame
+	m._activate_power("magnet", m.gun.global_position)
+	var e: Enemy = put(m, "plain", 9.0, g)
+	m.ammo = 10
+	m.kill_streak = 0
+	await fire_at(m, Vector2(4.0, g + 1.2), e.global_position + Vector3(0, 0.8, 0))
+	check(not e.alive, "imán: lo mataste")
+	await wait_s(1.5)
+	check(m.ammo == 10 - 1 + Config.KILL_REWARD + Config.MAGNET_DROPS, "y suelta %d balas que vienen a vos (%d)" % [Config.MAGNET_DROPS, m.ammo])
+	m.powers.clear()
+	# dron: le tira solo al que esté cerca, sin gastar tus balas
+	clear_world(m)
+	await physics_frame
+	await place_gun(m, Vector2(3.0, g + 1.0), 0.0)
+	m.gun.freeze = true
+	m._activate_power("drone", m.gun.global_position)
+	var e2: Enemy = put(m, "plain", 7.0, g)
+	m.ammo = 10
+	var t0 := Time.get_ticks_msec()
+	while e2.alive and Time.get_ticks_msec() - t0 < 4000:
+		await physics_frame
+	check(not e2.alive, "dron: lo mató solo")
+	check(m.ammo >= 10, "sin gastar tus balas (%d)" % m.ammo)
+	m.powers.drone = 0.01
+	await wait_s(0.2)
+	check(not is_instance_valid(m._drone), "cuando se termina, el dron se va")
 	await despawn(m)

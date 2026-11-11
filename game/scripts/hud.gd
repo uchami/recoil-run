@@ -331,7 +331,7 @@ func _build_tuning() -> void:
 			tuning_changed.emit())
 	for spec in [["PROBAR NIVEL", test_level, [["PERSEC.", "chase"], ["GALERÍA", "gallery"], ["APAGÓN", "blackout"], ["VENT.", "fan"], ["COHETE", "booster"], ["$ MERCADO", "market"], ["COFRE", "chest"], ["TRAMPA", "trap"]]],
 			["PROBAR JEFE", test_level, [["ROBOT", "boss:robot"], ["TOPO", "boss:mole"], ["ZEPELÍN", "boss:zeppelin"], ["MURALLA", "boss:wall"], ["DUELO", "boss:duel"]]],
-			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"]]]]:
+			["PROBAR PODER", test_power, [["∞", "infinite"], ["LÁSER", "laser"], ["+15", "ammo15"], ["★", "untouchable"], ["DRON", "drone"], ["ESCOPETA", "shotgun"], ["IMÁN", "magnet"], ["COMETA", "comet"]]]]:
 		var t := Label.new()
 		t.text = spec[0]
 		t.add_theme_font_size_override("font_size", 28)
@@ -646,7 +646,8 @@ func set_values(best: int, dist: int, ammo: int, infinite := false) -> void:
 	_ammo.add_theme_color_override("font_color", Color("ff6b6b") if ammo == 0 and not infinite else Color.WHITE)
 
 
-const POWER_LABELS := {"infinite": "∞ BALAS", "laser": "LÁSER", "untouchable": "★ INTOCABLE", "locked": "CANDADO: PESÁS x2"}
+const POWER_LABELS := {"infinite": "∞ BALAS", "laser": "LÁSER", "untouchable": "★ INTOCABLE", "locked": "CANDADO: PESÁS x2",
+	"drone": "DRON", "shotgun": "ESCOPETA x3", "magnet": "IMÁN"}
 
 
 ## Poderes activos con su tiempo restante, debajo de la distancia.

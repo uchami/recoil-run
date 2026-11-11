@@ -86,6 +86,13 @@ Resortes y candados aparecen a cualquier altura.
 al cuerpo corta la racha) o 3 kills en 3 tiros (no perdona nada). Al dar un poder se reinician las dos rachas.
 Balas infinitas 20 s · mirilla láser de 20 m por 1 min · +15 balas · intocable 15 s.
 
+**En el espacio** (desde 80 m sobre el piso) hay más premio:
+- **Poderes del espacio**: el 60 % de los poderes por racha son de estos (solo salen ahí). **Dron** 20 s: da vueltas
+  alrededor tuyo y le tira solo al enemigo más cercano en pantalla (a la cabeza), sin gastar tus balas ·
+  **Escopeta x3** 15 s: cada tiro son 3 balas en abanico (gasta 1) · **Imán** 20 s: cada enemigo que matás suelta 3
+  balas que vienen a vos (y te trae las sueltas a menos de 8 m).
+- **Cometa dorado**: cada 20–35 s cruza la pantalla en diagonal, rápido. Si le pegás: +15 balas y un poder del espacio.
+
 **Mercado**: se paga con balas; podés gastar todas menos una (siempre seguís jugando). Al salir flotás girando,
 inmune, hasta el primer tiro (como al arrancar). En cada visita ofrece **3 mejoras al azar**, como 3 tarjetas
 con dibujo: tocás una, abajo se ve en grande qué hace y el botón de comprar; y cada compra en la
@@ -119,7 +126,7 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 | Duelo | Un arma roja que se mueve con retroceso igual que vos: pegale 3 veces (después de cada golpe parpadea y un ratito no cuenta) | Te apunta (línea finita) y te dispara (-3) |
 
 En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque),
-**PROBAR JEFE** (reinicia con ese jefe) y **PROBAR PODER** (te da el poder en el momento). Para correr solo algunos tests:
+**PROBAR JEFE** (reinicia con ese jefe) y **PROBAR PODER** (te da el poder en el momento; COMETA hace pasar uno). Para correr solo algunos tests:
 `godot --headless --path . -s res://tests/smoke.gd -- test_boss_mole test_boss_wall`.
 
 Los sonidos se generan con `python3 tools/gen_sfx.py` (síntesis, sin dependencias).
@@ -136,7 +143,7 @@ botón AJUSTES del juego** (abajo de todo, en "FÍSICA (AVANZADO)", escondidos h
 | `scripts/records.gd` | Récords y leaderboard local |
 | `scripts/gun.gd` | Física del arma: retroceso asimétrico, lift, mirilla |
 | `scripts/enemy.gd` | Personaje (sin nada / espada / escudo / casco): cuerpo sólido vivo, ragdoll muerto |
-| `scripts/things/` | Resorte, murciélago y halcón, cofre (con candado) y cofre trampa, bañadera del mercado, balas sueltas y poderes; diana, lucecitas del apagón, boca de la persecución, nave que te abduce; los jefes (robot, topo, zepelín, muralla, duelo), su campo de fuerza y lo que tiran |
+| `scripts/things/` | Resorte, murciélago y halcón, cofre (con candado) y cofre trampa, bañadera del mercado, balas sueltas y poderes; diana, lucecitas del apagón, boca de la persecución, nave que te abduce, cometa y dron; los jefes (robot, topo, zepelín, muralla, duelo), su campo de fuerza y lo que tiran |
 | `scripts/sfx.gd` | Sonidos |
 | `scripts/main.gd` | Mundo, disparo (balas que vuelan), regla de pantalla, reglas, mercado, cámara, slow-mo, efectos |
 | `scripts/hud.gd` | HUD y pantallas de inicio / game over |

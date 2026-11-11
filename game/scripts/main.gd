@@ -93,6 +93,8 @@ var eaten := false # el cofre trampa te comió: se ve cómo cierra la boca y per
 var abducting := false # una nave te está llevando al piso (nivel especial desde muy alto)
 var trophy_laser := false # mataste un jefe: mirilla láser larga hasta el final de la partida
 var _abductor: Abductor
+var _drone: Drone # poder del espacio "dron"
+var _comet_cd := 0.0 # cuánto falta para el próximo cometa (en el espacio)
 var _float_pos := Vector3(Level.START.x, Level.START.y, 0.0) # dónde flota el arma antes del primer tiro
 
 
@@ -163,7 +165,11 @@ func _ready() -> void:
 		Level.debug_special = kind
 		restart())
 	hud.test_power.connect(func(power: String):
-		if state == State.PLAYING:
+		if state != State.PLAYING:
+			return
+		if power == "comet": # (para probar: que pase uno ya, esté donde esté)
+			spawn_comet()
+		else:
 			_activate_power(power, gun.global_position))
 	hud.market_buy.connect(_market_buy)
 	hud.market_close.connect(_market_close)
@@ -236,6 +242,9 @@ func shoot() -> void:
 	gun.fire(first)
 	_fx_flash(from)
 	_spawn_bullet(from, d)
+	if power_on("shotgun"): # escopeta: dos balas más, en abanico
+		_spawn_bullet(from, d.rotated(Config.SHOTGUN_SPREAD))
+		_spawn_bullet(from, d.rotated(-Config.SHOTGUN_SPREAD))
 
 
 # --- balas: vuelan (rápido, pero se ven) ---
@@ -492,10 +501,19 @@ func _on_hit(res: Dictionary, point: Vector3) -> bool:
 		"trap_open":
 			hud.popup_world(camera, above, "¡TRAMPA!", "hurt")
 			sfx.play("chomp")
+		"comet":
+			_fx_puff(point, Color("ffd23a"), 26, 0.9, false)
+			hud.popup_world(camera, above, "¡COMETA! +%d" % reward, "headshot")
+			sfx.play("fanfare", -2.0, 1.2)
+			_activate_power(SPACE_POWERS.pick_random(), point + Vector3(0, 0.8, 0))
 	if reward > 0:
 		ammo += reward
 		hud.bump_ammo()
-	return res.get("result", "") in KILL_RESULTS
+	var killed: bool = res.get("result", "") in KILL_RESULTS
+	if killed and power_on("magnet") and not res.get("result", "").begins_with("boss") and res.get("result", "") != "target_hit":
+		for i in Config.MAGNET_DROPS: # imán: suelta balas que vienen a vos
+			spawn_pickup("ammo", point + Vector3(randf_range(-0.6, 0.6), randf_range(-0.4, 0.6), 0), Vector3.ZERO, true)
+	return killed
 
 
 # --- daño, objetos y poderes (los llaman las cosas del mundo) ---
@@ -582,19 +600,31 @@ func collect(p: Pickup) -> void:
 
 
 const POWERS := ["infinite", "laser", "ammo15", "untouchable"]
+const SPACE_POWERS := ["drone", "shotgun", "magnet"] # solo se consiguen en el espacio
 
 
 ## Un poder random del pool, aplicado al instante. Reinicia las dos rachas.
+## En el espacio, a veces sale uno de los poderes del espacio.
 func grant_power(at: Vector3) -> void:
 	streak = 0
 	kill_streak = 0
-	_activate_power(POWERS.pick_random(), at)
+	if in_space() and randf() < Config.SPACE_POWER_CHANCE:
+		_activate_power(SPACE_POWERS.pick_random(), at)
+	else:
+		_activate_power(POWERS.pick_random(), at)
+
+
+## ¿Estás en el espacio? (arriba de UFO_ALT sobre el piso: ovnis, cometas, poderes del espacio)
+func in_space() -> bool:
+	var p := gun.global_position
+	return p.y - Level.top_at(blocks, p.x) >= Config.UFO_ALT
 
 
 func _activate_power(power: String, at: Vector3) -> void:
 	last_power = power
 	sfx.play("powerup")
-	var names := {"infinite": "¡BALAS INFINITAS!", "laser": "¡MIRILLA LÁSER!", "ammo15": "+15 BALAS", "untouchable": "¡INTOCABLE!"}
+	var names := {"infinite": "¡BALAS INFINITAS!", "laser": "¡MIRILLA LÁSER!", "ammo15": "+15 BALAS", "untouchable": "¡INTOCABLE!",
+		"drone": "¡DRON!", "shotgun": "¡ESCOPETA x3!", "magnet": "¡IMÁN!"}
 	hud.popup_world(camera, at + Vector3(0, 0.8, 0), names.get(power, power), "headshot")
 	match power:
 		"ammo15":
@@ -607,6 +637,25 @@ func _activate_power(power: String, at: Vector3) -> void:
 		"untouchable":
 			powers.untouchable = Config.POWER_UNTOUCHABLE_TIME
 			gun.set_glow(Color(0.75, 0.45, 1.0, 0.45))
+		"drone":
+			powers.drone = Config.DRONE_TIME
+			if not is_instance_valid(_drone):
+				_drone = Drone.new()
+				_drone.game = self
+				add_child(_drone)
+				_drone.global_position = gun.global_position
+		"shotgun":
+			powers.shotgun = Config.SHOTGUN_TIME
+		"magnet":
+			powers.magnet = Config.MAGNET_TIME
+
+
+## El dron le tira a `target`: una bala como las tuyas, pero sin gastar ni empujar.
+func drone_fire(from: Vector3, target: Vector3) -> void:
+	from.z = 0.0 # (el dron se dibuja un poco adelante, pero tira en el plano del juego)
+	var d := Vector2(target.x - from.x, target.y - from.y).normalized()
+	_spawn_bullet(from, d)
+	sfx.play("shot", -10.0, 1.6)
 
 
 func spawn_pickup(kind: String, pos: Vector3, vel: Vector3, floating := false) -> Pickup:
@@ -1036,6 +1085,7 @@ func _process(delta: float) -> void:
 	fan_ride -= real_dt
 	if state == State.PLAYING and fan_ride <= 0.0: # la subida en ventilador es limpia
 		_sky_spawner(p)
+	_comet_spawner(real_dt)
 	_hurt_cd -= real_dt
 	for k in powers.keys():
 		powers[k] -= real_dt
@@ -1043,6 +1093,9 @@ func _process(delta: float) -> void:
 			powers.erase(k)
 			if k == "untouchable":
 				gun.set_glow(null)
+			elif k == "drone" and is_instance_valid(_drone):
+				_drone.queue_free()
+				_drone = null
 			elif k == "locked":
 				_unlock_gun()
 	_update_laser()
@@ -1334,6 +1387,30 @@ func _sky_spawner(p: Vector3) -> void:
 	sky_spawned += 1
 
 
+## Cometa dorado: en el espacio, cada COMET_EVERY segundos cruza uno la pantalla
+## (aparece arriba a la derecha y baja en diagonal hacia la izquierda).
+func _comet_spawner(dt: float) -> void:
+	if state != State.PLAYING or not in_space():
+		_comet_cd = maxf(_comet_cd, Config.COMET_EVERY.x * 0.4)
+		return
+	_comet_cd -= dt
+	if _comet_cd > 0.0:
+		return
+	_comet_cd = randf_range(Config.COMET_EVERY.x, Config.COMET_EVERY.y)
+	spawn_comet()
+
+
+func spawn_comet() -> Comet:
+	var c := Comet.new()
+	c.game = self
+	add_child(c)
+	c.global_position = gun.global_position + Vector3(9.0, randf_range(2.5, 4.5), 0)
+	c.rel_vel = Vector3(-randf_range(10.0, 12.5), -randf_range(2.0, 3.5), 0)
+	entities.append(c)
+	sfx.play("screech", -8.0, 1.8)
+	return c
+
+
 ## ¿Puede aparecer una bañadera voladora acá? Pasados MARKET_FROM m, en el aire,
 ## y lejos de cualquier otra bañadera (del piso o del aire).
 func _air_market_ok(pos: Vector3, alt: float) -> bool:
@@ -1512,6 +1589,8 @@ func _prewarm() -> void:
 	holder.add_child(Target.new())
 	holder.add_child(Firefly.new())
 	holder.add_child(Abductor.new())
+	holder.add_child(Comet.new())
+	holder.add_child(Drone.new())
 	for k in ["hawk", "bat"]:
 		var f := Flyer.new()
 		f.kind = k
