@@ -5,7 +5,7 @@ Juego mobile (Android + iPhone) hecho en **Godot 4.7**: un arma que avanza con e
 ```
 game/            proyecto Godot (el juego)
 prototype-web/   prototipo web original (solo referencia)
-build/           APK / proyecto iOS exportados (no se versiona)
+build/           APK / proyecto iOS / web exportados (no se versiona)
 ```
 
 ## Correr y probar
@@ -20,6 +20,18 @@ godot --path . -- --demo-headshot                # dispara solo al primer headsh
 ```
 
 ## Exportar
+
+**Web:** se juega en **https://recoil.urichami.xyz**. Cada push a `main` lo exporta y lo publica solo en
+GitHub Pages (`.github/workflows/web.yml`). El preset "Web" va sin threads (`variant/thread_support=false`) porque
+GitHub Pages no manda los headers COOP/COEP. Para probarlo local:
+
+```bash
+cd game
+godot --headless --path . --export-release "Web" ../build/web/index.html
+python3 -m http.server 8000 -d ../build/web       # abrir http://localhost:8000
+```
+
+**Android:**
 
 ```bash
 cd game
