@@ -11,6 +11,7 @@ const LOOK_AHEAD := 3.5
 const GAP_CAM_LOOKAHEAD := 5.0 # a esta distancia del borde de un hueco la cámara empieza a alejarse
 const GAP_CAM_MAX_WIDTH := 24.0 # ancho visible máximo al cruzar un hueco largo
 const CAM_KEEP := Vector2(0.7, 0.6) # el arma nunca sale de esta fracción central de la pantalla
+const RETRY_GUARD_MS := 600 # el botón OTRA VEZ no anda hasta este tiempo después de perder
 
 var state := State.READY
 var ammo := Config.START_AMMO
@@ -95,6 +96,7 @@ var trophy_laser := false # mataste un jefe: mirilla láser larga hasta el final
 var _abductor: Abductor
 var _drone: Drone # poder del espacio "dron"
 var _comet_cd := 0.0 # cuánto falta para el próximo cometa (en el espacio)
+var restarting := false # (para los tests: se pidió reiniciar)
 var _float_pos := Vector3(Level.START.x, Level.START.y, 0.0) # dónde flota el arma antes del primer tiro
 
 
@@ -159,7 +161,7 @@ func _ready() -> void:
 
 	hud = Hud.new()
 	add_child(hud)
-	hud.retry_pressed.connect(restart)
+	hud.retry_pressed.connect(_retry)
 	hud.tuning_changed.connect(_apply_tuning)
 	hud.test_level.connect(func(kind: String):
 		Level.debug_special = kind
@@ -198,7 +200,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_SPACE, KEY_ENTER, KEY_UP:
-				_on_tap()
+				if state == State.OVER: # en el teclado, estas teclas siguen reiniciando
+					_retry()
+				else:
+					_on_tap()
 			KEY_R:
 				restart()
 
@@ -206,16 +211,23 @@ func _unhandled_input(event: InputEvent) -> void:
 func _on_tap() -> void:
 	if state == State.MARKET: # se usa con los botones del mercado
 		return
-	if state == State.OVER:
-		if Time.get_ticks_msec() - _over_at_ms > 600:
-			restart()
+	if state == State.OVER: # se reinicia solo con el botón OTRA VEZ (tocar afuera no hace nada)
 		return
 	_queued_shots += 1
 
 
+## OTRA VEZ (o Espacio/Enter en el game over). Un ratito después de perder, para
+## que un toque de los que venías haciendo no reinicie sin querer.
+func _retry() -> void:
+	if state == State.OVER and Time.get_ticks_msec() - _over_at_ms > RETRY_GUARD_MS:
+		restart()
+
+
 func restart() -> void:
+	restarting = true
 	Engine.time_scale = 1.0
-	get_tree().reload_current_scene()
+	if get_tree().current_scene: # (en los tests no hay escena que recargar)
+		get_tree().reload_current_scene()
 
 
 # --- disparo ---
@@ -363,9 +375,25 @@ func _end_bullet(b: Dictionary) -> void:
 	tw.tween_property(node, "scale", Vector3(0.2, 1.0, 1.0), 0.06)
 	tw.tween_callback(node.queue_free)
 	kill_streak = kill_streak + 1 if b.killed else 0
-	if _power_pending or streak >= Config.STREAK_FOR_POWER or kill_streak >= Config.STREAK_FOR_POWER:
+	var prize := kill_streak >= Config.STREAK_FOR_POWER
+	_show_combo(kill_streak, prize)
+	if _power_pending or streak >= Config.STREAK_FOR_POWER or prize:
 		_power_pending = false
 		grant_power(b.pos)
+
+
+## Combo (la racha de kills seguidos): "COMBO x2", "COMBO x3"... con un sonido que
+## sube con el combo. El que da el poder queda un ratito en pantalla (después la
+## racha vuelve a 0); si no, se ve hasta que errás un tiro.
+func _show_combo(n: int, prize: bool) -> void:
+	if n < Config.COMBO_MIN_SHOW:
+		hud.set_combo(0)
+		return
+	hud.set_combo(n, Config.COMBO_PRIZE_SHOW if prize else 0.0)
+	if n >= 3:
+		sfx.play("combo3", 0.0, 1.0 + 0.12 * (n - 3), 0.0)
+	else:
+		sfx.play("combo2", -1.0, 1.0, 0.0)
 
 
 ## ¿Esto ya apareció alguna vez en pantalla? (o está en pantalla justo donde le pegaron)
@@ -388,7 +416,7 @@ func _mark_seen() -> void:
 				n.set_meta("seen", true)
 
 
-const THREAT_COLORS := {"Rocket": Color("ff4d4d"), "Airplane": Color("ffa03a"), "Ufo": Color("7dff6b")}
+const THREAT_COLORS := {"Rocket": Color("ff4d4d"), "Airplane": Color("ffa03a"), "Ufo": Color("7dff6b"), "Comet": Color("ffd23a")}
 
 
 ## Lo peligroso que está cerca pero fuera de pantalla: para las flechas del borde.
@@ -404,6 +432,9 @@ func _threats() -> Array:
 			continue
 		var kind := "Rocket" if n is Rocket else ("Airplane" if n is Airplane else "Ufo")
 		out.append({"at": camera.unproject_position(p), "color": THREAT_COLORS[kind], "near": 1.0 - dist / Config.ARROW_RANGE})
+	for n in entities: # el cometa (premio, no peligro): flecha dorada mientras viene
+		if is_instance_valid(n) and n is Comet and n.incoming() and not camera.is_position_in_frustum(n.global_position):
+			out.append({"at": camera.unproject_position(n.global_position), "color": THREAT_COLORS.Comet, "near": 1.0})
 	if _chaser and not _chaser.done: # la boca gigante de la persecución
 		var mp := Vector3(_chaser.front_x, gp.y, 0.0)
 		if not camera.is_position_in_frustum(mp):
@@ -608,6 +639,7 @@ const SPACE_POWERS := ["drone", "shotgun", "magnet"] # solo se consiguen en el e
 func grant_power(at: Vector3) -> void:
 	streak = 0
 	kill_streak = 0
+	hud.set_combo(0) # (si fue por el combo, el cartel se queda su ratito)
 	if in_space() and randf() < Config.SPACE_POWER_CHANCE:
 		_activate_power(SPACE_POWERS.pick_random(), at)
 	else:
@@ -1168,6 +1200,7 @@ func _game_over(title: String, final := false) -> void:
 	state = State.OVER
 	_over_at_ms = Time.get_ticks_msec()
 	hud.set_special_info("")
+	hud.set_combo(0, 0.0, true)
 	sfx.play("game_over")
 	powers.clear()
 	gun.set_glow(null)
@@ -1388,7 +1421,8 @@ func _sky_spawner(p: Vector3) -> void:
 
 
 ## Cometa dorado: en el espacio, cada COMET_EVERY segundos cruza uno la pantalla
-## (aparece arriba a la derecha y baja en diagonal hacia la izquierda).
+## (aparece arriba a la derecha y baja en diagonal hacia la izquierda) y después
+## vuelve de izquierda a derecha. Antes de cada pasada, flecha dorada en el borde.
 func _comet_spawner(dt: float) -> void:
 	if state != State.PLAYING or not in_space():
 		_comet_cd = maxf(_comet_cd, Config.COMET_EVERY.x * 0.4)
@@ -1404,8 +1438,8 @@ func spawn_comet() -> Comet:
 	var c := Comet.new()
 	c.game = self
 	add_child(c)
-	c.global_position = gun.global_position + Vector3(9.0, randf_range(2.5, 4.5), 0)
-	c.rel_vel = Vector3(-randf_range(10.0, 12.5), -randf_range(2.0, 3.5), 0)
+	c.global_position = gun.global_position + Vector3(Config.COMET_TURN_X, randf_range(2.5, 4.5), 0)
+	c.rel_vel = Vector3(-randf_range(Config.COMET_SPEED.x, Config.COMET_SPEED.y), -randf_range(2.0, 3.5), 0)
 	entities.append(c)
 	sfx.play("screech", -8.0, 1.8)
 	return c

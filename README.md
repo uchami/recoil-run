@@ -13,6 +13,7 @@ build/           APK / proyecto iOS exportados (no se versiona)
 ```bash
 cd game
 godot --path .                                   # jugar en desktop (click / espacio = disparar, R = reiniciar)
+                                                 # (en el game over solo reinicia el botón OTRA VEZ, o Espacio/Enter/R)
 godot --editor --path .                          # abrir el editor
 godot --headless --path . -s res://tests/smoke.gd   # pruebas de física y reglas (deben decir SMOKE OK)
 godot --path . -- --demo-headshot                # dispara solo al primer headshot (para grabar el slow-mo)
@@ -66,7 +67,7 @@ adb install -r ../build/recoil-run.apk
 | Cohete propulsor | Pasados los 3000 m, a veces. Lo tocás, te agarra y te suelta en el espacio (90 m sobre el piso) |
 | Resorte flotando | Igual que el del piso, a cualquier altura |
 | Candado | Flota. Muere de un tiro (+3). Si te toca se te pega: el arma pesa el doble 5 s (otro candado renueva el tiempo) |
-| Ovni | **Te persigue**: te sigue el ritmo y se pone adelante tuyo, un poco arriba, siempre a la vista. Después de recorrer 60 m (neto, desde donde apareció) se rinde y se va; no más de 2 a la vez. Solo dispara si está en pantalla y cerca: avisa con una línea finita y a los 0.7 s dispara un láser verde: -5 balas. Se esquiva moviéndote. Se mata de un tiro a la **cúpula** (+5); en el plato rebota |
+| Ovni | **Te persigue con inercia**: quiere ponerse adelante tuyo, un poco arriba, pero te ve con atraso (0.6 s), acelera de a poco y va a 4.5 m/s como mucho (menos que un disparo: 7 m/s), así que se pasa de largo y avanzando impulsada lo dejás atrás (si le sacás 14 m, te pierde). Mientras apunta y un ratito después de disparar se queda quieto. Después de recorrer 60 m (neto, desde donde apareció) se rinde y se va; no más de 2 a la vez. Solo dispara si está en pantalla y cerca: avisa con una línea finita y a los 0.7 s dispara un láser verde: -5 balas. Se esquiva moviéndote. Se mata de un tiro a la **cúpula** (+5); en el plato rebota |
 | Astronauta | Vienen en grupitos (a veces en fila). Flotan dando vueltas; si te choca -1 y te empuja. De un tiro, como los del piso: al casco headshot +4 con slow-mo, al cuerpo +2 |
 | Murciélago | Revolotea. Si te choca se muere y te saca 1 bala. De un tiro: +3 |
 | Halcón | Cuando te ve, toma tu posición y va lento en línea recta hacia ahí. Si te toca: -1 bala y te hace girar. De un tiro: +3 |
@@ -84,6 +85,8 @@ Resortes y candados aparecen a cualquier altura.
 
 **Poderes** (se aplican solos, no hay que recogerlos): 3 headshots seguidos (perdona los tiros errados; un kill
 al cuerpo corta la racha) o 3 kills en 3 tiros (no perdona nada). Al dar un poder se reinician las dos rachas.
+La racha de kills se ve como **COMBO x2 / COMBO x3** debajo de la distancia, con un sonido que sube; se va al errar un
+tiro (el x3 da el poder y queda un ratito).
 Balas infinitas 20 s · mirilla láser de 20 m por 1 min · +15 balas · intocable 15 s.
 
 **En el espacio** (desde 80 m sobre el piso) hay más premio:
@@ -91,7 +94,8 @@ Balas infinitas 20 s · mirilla láser de 20 m por 1 min · +15 balas · intocab
   alrededor tuyo y le tira solo al enemigo más cercano en pantalla (a la cabeza), sin gastar tus balas ·
   **Escopeta x3** 15 s: cada tiro son 3 balas en abanico (gasta 1) · **Imán** 20 s: cada enemigo que matás suelta 3
   balas que vienen a vos (y te trae las sueltas a menos de 8 m).
-- **Cometa dorado**: cada 20–35 s cruza la pantalla en diagonal, rápido. Si le pegás: +15 balas y un poder del espacio.
+- **Cometa dorado** (la estrella fugaz): cada 20–35 s cruza la pantalla en diagonal, rápido, y vuelve para el otro lado
+  (pasa 2 veces). Antes de cada pasada, una flecha dorada en el borde avisa por dónde viene. Si le pegás: +15 balas y un poder del espacio.
 
 **Mercado**: se paga con balas; podés gastar todas menos una (siempre seguís jugando). Al salir flotás girando,
 inmune, hasta el primer tiro (como al arrancar). En cada visita ofrece **3 mejoras al azar**, como 3 tarjetas
@@ -112,7 +116,7 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 
 | Nivel | Qué es | Premio |
 |---|---|---|
-| Persecución (110 m) | Un cofre trampa gigante (más alto que la pantalla) te persigue, cada vez más rápido (3.2 → 5.2 m/s), y nunca queda a más de 10 m: si te frenás, te alcanza y **te come** (perdés, sin seguro). La cámara mira para atrás para que lo veas | Escapar: +10 |
+| Persecución (110 m) | Un cofre trampa gigante (más alto que la pantalla) te persigue, cada vez más rápido (3.2 → 5.2 m/s), y nunca queda a más de 10 m: si te frenás, te alcanza y **te come** (perdés, sin seguro). La cámara mira para atrás para que lo veas. En el camino hay grupitos de 3 balas flotando (cada 9–13 m) | Escapar: +10 |
 | Galería de tiro (110 m) | Dianas que asoman 2.6 s cuando te acercás (desde el piso, colgando o en globito). Al centro 2 puntos, al resto 1; cada acierto te devuelve la bala | Oro (85 % de los puntos) +20, plata (60 %) +10, bronce (35 %) +5 |
 | Apagón (120 m) | Todo a oscuras: se ven los ojos de los enemigos, el arma (luz tenue + linterna hacia donde apunta) y lo que ilumina cada fogonazo. Hay lucecitas flotando que titilan: cada una que le pegás da +2 balas. Sin cascos | Cruzar sin que te toquen: +10 |
 | Jefe (50 m) | Uno de 5 jefes (no se repiten hasta que salen todos), en una arena con un campo de fuerza detrás (no se pasa, ni por arriba). La cámara se aleja para que entre entero; no disparan desde fuera de pantalla. Ver la tabla de abajo | Ganarle: +15 y **mirilla láser larga hasta el final de la partida** (si ya la tenías, +10 balas más) |

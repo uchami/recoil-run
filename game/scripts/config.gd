@@ -79,6 +79,10 @@ const PICKUP_LIFE := 14.0
 
 # Poderes (3 headshots seguidos)
 const STREAK_FOR_POWER := 3
+# Combo: kills seguidos con tiros seguidos (la racha de kills). Se ve "COMBO x2",
+# "COMBO x3"... mientras dure; el que da el poder queda en pantalla COMBO_PRIZE_SHOW s.
+const COMBO_MIN_SHOW := 2
+const COMBO_PRIZE_SHOW := 1.4
 const POWER_INFINITE_TIME := 20.0
 const POWER_LASER_TIME := 60.0
 const POWER_LASER_RANGE := 20.0
@@ -119,6 +123,12 @@ const BOSS_REWARD := 15 # lo mataste
 const BOSS_LASER_BONUS := 10 # si ya tenías la mirilla del jefe, en vez de eso te da estas balas
 const COMET_REWARD := 15 # cometa dorado (solo en el espacio): +15 y un poder del espacio
 const COMET_EVERY := Vector2(20.0, 35.0) # cada cuántos segundos cruza uno (estando arriba de UFO_ALT)
+# El cometa pasa 2 veces (ida y vuelta); antes de cada pasada espera afuera de la
+# pantalla con una flecha dorada en el borde que avisa por dónde viene.
+const COMET_SPEED := Vector2(9.0, 11.0) # m/s respecto del arma (random entre estos)
+const COMET_WARN := 0.9 # s de aviso (flecha) antes de la ida
+const COMET_TURN := 1.1 # s que espera afuera (con flecha) antes de volver
+const COMET_TURN_X := 10.0 # m adelante/atrás del arma donde da la vuelta (fuera de pantalla)
 const SPACE_POWER_CHANCE := 0.6 # en el espacio, un poder por racha es "del espacio" con esta chance
 const DRONE_TIME := 20.0 # dron: dispara solo
 const DRONE_FIRE_EVERY := 0.7
@@ -143,6 +153,10 @@ const CHASE_HEIGHT := 14.0 # m de alto (más que la pantalla: no se escapa por a
 const CHASE_SPEED := Vector2(3.2, 5.2) # m/s al principio y al final del tramo
 const CHASE_START_GAP := 9.0 # arranca a esta distancia detrás tuyo
 const CHASE_MAX_GAP := 10.0 # nunca queda más lejos que esto (y la cámara la muestra)
+# Balas en el camino de la persecución: grupitos flotando, para no quedarte seco.
+const CHASE_AMMO_EVERY := Vector2(9.0, 13.0) # m entre un grupito y el siguiente
+const CHASE_AMMO_GROUP := 3 # balas por grupito (+1 cada una)
+const CHASE_AMMO_HEIGHT := Vector2(1.8, 3.6) # altura sobre el piso
 
 # Galería de tiro
 const TARGET_TRIGGER := 8.0 # la diana asoma cuando estás a esta distancia
@@ -162,11 +176,20 @@ const PADLOCK_CHANCE := 0.12 # de lo que aparece en el cielo
 const UFO_ALT := 80.0
 const UFO_REWARD := 5 # se mata de un tiro a la cúpula; en el plato rebota
 const UFO_MAX := 2 # te persiguen: no más de 2 a la vez
-const UFO_CHASE_SPEED := 4.0 # m/s con los que se acomoda a su lugar (además de seguirte el ritmo)
-const UFO_MAX_SPEED := 14.0 # te sigue el ritmo hasta esta velocidad
-const UFO_HOVER := Vector2(4.5, 2.5) # se pone adelante tuyo y un poco arriba: siempre a la vista
+# Persecución "con inercia": no te copia el movimiento. Ve dónde estabas hace un
+# ratito (UFO_REACTION), acelera de a poco (UFO_ACCEL) hasta UFO_MAX_SPEED (menos
+# que lo que te empuja un disparo: 7 m/s), así que se pasa de largo si cambiás de
+# dirección y te lo sacás de encima avanzando. Mientras apunta y un rato después
+# de disparar (UFO_FIRE_PAUSE) frena y se queda quieto: ventana para pegarle.
+const UFO_MAX_SPEED := 4.5 # m/s
+const UFO_ACCEL := 4.0 # m/s²
+const UFO_REACTION := 0.6 # s: qué tan atrasado te ve (seguimiento suavizado)
+const UFO_STEER := 2.0 # cuánto apura según lo lejos que está de su lugar (1/s): alto = se pasa de largo
+const UFO_FIRE_PAUSE := 0.6 # s quieto después de disparar
+const UFO_HOVER := Vector2(4.5, 2.5) # quiere ponerse adelante tuyo y un poco arriba
 const UFO_CHASE_DIST := 60.0 # después de recorrer esto (neto, desde donde apareció) se rinde y se va
 const UFO_GIVE_UP := 45.0 # si quedás más lejos que esto, se va
+const UFO_ESCAPE := 14.0 # si lo pasás y le sacás esta ventaja hacia adelante, te pierde y se va
 const UFO_DAMAGE := 5 # el láser verde te saca 5 balas
 const UFO_SIGHT := 11.0 # solo dispara si está a esta distancia y en pantalla
 const UFO_FIRE_EVERY := 3.0

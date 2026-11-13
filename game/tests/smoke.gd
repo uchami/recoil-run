@@ -85,6 +85,8 @@ func _run() -> void:
 	await test_power_streak()
 	await test_powers()
 	await test_space_rewards()
+	await test_combo()
+	await test_retry_only_button()
 	await test_hurt_without_ammo()
 	await test_special_levels()
 	await test_stress()
@@ -932,6 +934,68 @@ func test_powers() -> void:
 	await despawn(m)
 
 
+## Combo: la racha de kills en pantalla ("COMBO x2", "COMBO x3") con su sonido.
+func test_combo() -> void:
+	print("combo")
+	var m := await spawn()
+	clear_world(m)
+	await physics_frame
+	var hud: Hud = m.hud
+	for i in 3:
+		var e: Enemy = put(m, "plain", 4.0 + i * 1.2)
+		await physics_frame
+		m.sfx.played.clear()
+		await fire_at(m, Vector2(0.0, 0.7), e.global_position + Vector3(0, 0.7, 0))
+		match i:
+			0:
+				check(not hud._combo.visible, "1 kill: no se muestra (x1)")
+			1:
+				check(hud._combo.visible and hud._combo.text == "COMBO x2" and "combo2" in m.sfx.played, "2 kills seguidos: COMBO x2 con sonido (%s)" % hud._combo.text)
+			2:
+				check(hud._combo.visible and hud._combo.text == "COMBO x3" and "combo3" in m.sfx.played, "3 kills seguidos: COMBO x3 con otro sonido (%s)" % hud._combo.text)
+				check(m.last_power != "" and m.kill_streak == 0, "y da el poder (la racha vuelve a 0)")
+	await wait_s(Config.COMBO_PRIZE_SHOW + 0.3)
+	check(not hud._combo.visible, "el COMBO x3 queda un ratito y se va")
+	# x2 y un tiro errado: se pierde
+	m.powers.clear()
+	for i in 2:
+		var e: Enemy = put(m, "plain", 4.0 + i * 1.2)
+		await physics_frame
+		await fire_at(m, Vector2(0.0, 0.7), e.global_position + Vector3(0, 0.7, 0))
+	check(hud._combo.visible and hud._combo.text == "COMBO x2", "queda en pantalla mientras dura")
+	await wait_s(0.5)
+	check(hud._combo.visible, "(no se borra solo)")
+	await fire_at(m, Vector2(0.0, 3.0), Vector3(10.0, 12.0, 0.0)) # al cielo
+	check(not hud._combo.visible, "un tiro errado: se pierde el combo y se va el cartel")
+	await despawn(m)
+
+
+## Game over: solo el botón OTRA VEZ reinicia (tocar afuera no hace nada).
+func test_retry_only_button() -> void:
+	print("reiniciar solo con el botón")
+	var m := await spawn()
+	await place_gun(m, Vector2(-3.0, 3.0), 0.0)
+	m._game_over("SIN BALAS")
+	m._over_at_ms -= 2000
+	await process_frame
+	var btn: Button = m.hud._over.find_children("*", "Button", true, false)[0]
+	# un toque fuera del botón llega al juego como input sin manejar
+	for pressed in [true, false]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+		ev.position = Vector2(30.0, 30.0)
+		m._unhandled_input(ev)
+	await process_frame
+	check(m.state == m.State.OVER and not m.restarting, "tocar fuera del botón no reinicia")
+	var blockers: Array = m.hud._over.find_children("*", "Control", true, false).filter(func(c): return c != btn and c.mouse_filter == Control.MOUSE_FILTER_STOP)
+	check(btn.mouse_filter == Control.MOUSE_FILTER_STOP and blockers.is_empty(), "el botón es lo único que agarra el toque en esa pantalla (%d)" % blockers.size())
+	btn.pressed.emit()
+	await process_frame
+	check(m.restarting, "tocar OTRA VEZ reinicia")
+	await despawn(m)
+
+
 func test_hurt_without_ammo() -> void:
 	print("golpe sin balas = muerte")
 	var m := await spawn()
@@ -1252,7 +1316,7 @@ func test_ufo() -> void:
 	check(not u.alive, "tiro a la cúpula: muere de un tiro")
 	check(m.ammo == 18 + Config.UFO_REWARD, "te da %d balas (%d)" % [Config.UFO_REWARD, m.ammo])
 	await despawn(m)
-	# te persigue: si avanzás, te sigue
+	# te persigue: si vas más despacio que él, te sigue
 	m = await spawn()
 	clear_world(m)
 	await physics_frame
@@ -1260,37 +1324,78 @@ func test_ufo() -> void:
 	await place_gun(m, Vector2(0.0, 3.0), 0.0)
 	m.powers.untouchable = 99.0
 	var gx := 0.0
-	for i in 360: # 3 s avanzando a 8 m/s
-		gx += 8.0 / 120.0
+	var top_speed := 0.0
+	var prev: Vector3 = u._anchor
+	for i in 480: # 4 s avanzando a 3.5 m/s
+		gx += 3.5 / 120.0
 		m.gun.global_position = Vector3(gx, 3.0, 0.0)
 		m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
+		top_speed = maxf(top_speed, u._anchor.distance_to(prev) * 120.0)
+		prev = u._anchor
 	var d: float = u.global_position.distance_to(m.gun.global_position)
-	check(u.global_position.x > 14.0 and d < 12.0, "avanzaste 24 m y te siguió (x=%.1f, a %.1f m)" % [u.global_position.x, d])
+	check(not u.leaving and d < 9.0, "avanzaste despacio y te siguió (a %.1f m)" % d)
+	check(top_speed <= Config.UFO_MAX_SPEED + 0.05 and top_speed < Tuning.values.recoil_speed, "nunca va más rápido que %.1f m/s (menos que un disparo: %.1f) (%.2f)" % [Config.UFO_MAX_SPEED, Tuning.values.recoil_speed, top_speed])
+	# no reacciona al instante: si arrancás de golpe, tarda en acelerar
+	u._anchor = m.gun.global_position + Vector3(Config.UFO_HOVER.x, Config.UFO_HOVER.y, 0.0)
+	u.vel = Vector3.ZERO
+	u._seen_gun = m.gun.global_position
+	var a0: Vector3 = u._anchor
+	for i in 30: # 0.25 s: vos a 8 m/s
+		gx += 8.0 / 120.0
+		m.gun.global_position = Vector3(gx, 3.0, 0.0)
+		await physics_frame
+	check(u._anchor.x - a0.x < 0.5, "arrancás de golpe y tarda en reaccionar (se movió %.2f m, vos 2 m)" % (u._anchor.x - a0.x))
+	# se pasa de largo: si te frenás de golpe, sigue un poco (inercia)
+	u._anchor = m.gun.global_position + Vector3(Config.UFO_HOVER.x - 3.0, Config.UFO_HOVER.y, 0.0)
+	u.vel = Vector3(Config.UFO_MAX_SPEED, 0, 0)
+	u._seen_gun = m.gun.global_position + Vector3(4.0, 0, 0)
+	u._cd = 99.0
+	var max_x: float = u._anchor.x
+	for i in 480:
+		m.gun.global_position = Vector3(gx, 3.0, 0.0) # quieta
+		await physics_frame
+		max_x = maxf(max_x, u._anchor.x)
+	var hover_x: float = gx + Config.UFO_HOVER.x
+	check(max_x > hover_x + 0.8 and absf(u._anchor.x - hover_x) < 1.0, "con inercia: se pasa de largo y vuelve (llegó a +%.1f m de su lugar)" % (max_x - hover_x))
 	m.gun.global_position = Vector3(gx, 300.0, 0.0)
 	await physics_frame
 	await physics_frame
 	check(u.leaving, "si lo dejás muy lejos, se va")
-	# no te persigue para siempre: después de UFO_CHASE_DIST se rinde
+	# esquivarlo avanzando: si vas impulsada (más rápido que él), lo dejás atrás y te pierde
 	clear_world(m)
 	await physics_frame
 	await place_gun(m, Vector2(0.0, 3.0), 0.0)
 	u = put(m, "ufo", 5.0, 6.0)
 	gx = 0.0
-	var gave_up_at := -1.0
-	for i in 1200: # 10 s a 8 m/s
-		gx += 8.0 / 120.0
+	var lost_at := -1.0
+	for i in 1200: # hasta 10 s a 7 m/s (lo que te empuja un disparo)
+		gx += 7.0 / 120.0
 		m.gun.global_position = Vector3(gx, 3.0, 0.0)
 		m.gun.linear_velocity = Vector3.ZERO
 		await physics_frame
-		var cam_ok: bool = m.camera.is_position_in_frustum(u.global_position)
-		if not u.leaving and gx > 6.0 and not cam_ok:
-			check(false, "mientras te persigue, se ve en pantalla (x=%.1f, arma %.1f)" % [u.global_position.x, gx])
-			break
 		if u.leaving:
-			gave_up_at = gx
+			lost_at = gx
 			break
-	check(gave_up_at > Config.UFO_CHASE_DIST - 10.0 and gave_up_at < Config.UFO_CHASE_DIST + 15.0, "se rinde después de ~%d m (a los %.0f)" % [Config.UFO_CHASE_DIST, gave_up_at])
+	var ran: float = (u._anchor - u._spawn).length()
+	check(lost_at > 0.0 and ran < Config.UFO_CHASE_DIST, "avanzando impulsada lo dejás atrás y te pierde (a los %.0f m; él recorrió %.0f)" % [lost_at, ran])
+	# no te persigue para siempre: después de UFO_CHASE_DIST se rinde
+	clear_world(m)
+	await physics_frame
+	await place_gun(m, Vector2(0.0, 3.0), 0.0)
+	u = put(m, "ufo", 5.0, 6.0)
+	u._spawn.x -= Config.UFO_CHASE_DIST - 12.0 # (como si ya te viniera persiguiendo)
+	gx = 0.0
+	var gave_up_at := -1.0
+	for i in 1200: # 3.5 m/s: te sigue
+		gx += 3.5 / 120.0
+		m.gun.global_position = Vector3(gx, 3.0, 0.0)
+		m.gun.linear_velocity = Vector3.ZERO
+		await physics_frame
+		if u.leaving:
+			gave_up_at = (u._anchor - u._spawn).length()
+			break
+	check(gave_up_at > Config.UFO_CHASE_DIST - 1.0 and gave_up_at < Config.UFO_CHASE_DIST + 2.0, "se rinde después de recorrer %d m (%.0f)" % [Config.UFO_CHASE_DIST, gave_up_at])
 	# no más de UFO_MAX a la vez
 	clear_world(m)
 	for i in Config.UFO_MAX:
@@ -1761,7 +1866,13 @@ func test_special_levels() -> void:
 		match sp:
 			"chase":
 				check(gaps == 0, "persecución: sin huecos")
-				check(items.size() >= 4, "persecución: algunos personajes (%d)" % items.size())
+				check(items.size() - kinds.get("ammo", 0) >= 4, "persecución: algunos personajes (%s)" % str(kinds))
+				var ammo_xs: Array = items.filter(func(it): return it.type == "ammo").map(func(it): return it.x)
+				ammo_xs.sort()
+				var worst := 0.0
+				for i in range(1, ammo_xs.size()):
+					worst = maxf(worst, ammo_xs[i] - ammo_xs[i - 1])
+				check(ammo_xs.size() >= 20 and worst <= Config.CHASE_AMMO_EVERY.y + Level.ITEM_EDGE * 2.0 + 0.5, "persecución: balas en el camino (%d, la mayor distancia entre balas %.1f m)" % [ammo_xs.size(), worst])
 			"gallery":
 				check(gaps == 0, "galería: sin huecos")
 				check(kinds.get("target", 0) >= 10 and kinds.size() == 1, "galería: solo dianas (%s)" % str(kinds))
@@ -1907,7 +2018,7 @@ func test_special_chase() -> void:
 		await physics_frame
 	await process_frame
 	check(not m.eaten and m.special_zone.is_empty(), "si llegás al final, escapaste")
-	check(m.ammo == before + Config.CHASE_REWARD, "+%d balas (%d -> %d)" % [Config.CHASE_REWARD, before, m.ammo])
+	check(m.ammo >= before + Config.CHASE_REWARD + 10, "+%d balas al final, más las que juntaste en el camino (%d -> %d)" % [Config.CHASE_REWARD, before, m.ammo])
 	await despawn(m)
 
 
@@ -2278,8 +2389,29 @@ func test_space_rewards() -> void:
 	var comets: Array = m.entities.filter(func(n): return is_instance_valid(n) and n is Comet)
 	check(comets.size() == 1, "en el espacio pasa un cometa")
 	var c: Comet = comets[0]
-	await wait_s(0.5)
-	check(m.on_screen(c.global_position), "cruza la pantalla (se ve)")
+	await process_frame
+	check(not m.on_screen(c.global_position) and m.hud.visible_arrows() == 1, "antes de pasar, una flecha avisa por dónde viene (%d)" % m.hud.visible_arrows())
+	var seen_go := false
+	var seen_back := false
+	var arrow_back := false
+	var tc := Time.get_ticks_msec()
+	while is_instance_valid(c) and Time.get_ticks_msec() - tc < 9000:
+		await process_frame
+		if not is_instance_valid(c):
+			break
+		var on: bool = m.on_screen(c.global_position)
+		if c.phase == Comet.Phase.GO and on:
+			seen_go = true
+		if c.phase == Comet.Phase.TURN and not on and m.hud.visible_arrows() == 1:
+			arrow_back = true
+		if c.phase == Comet.Phase.BACK and on:
+			seen_back = true
+	check(seen_go, "cruza la pantalla (se ve)")
+	check(arrow_back, "pasa de largo, espera afuera y la flecha avisa que vuelve")
+	check(seen_back, "y vuelve: pasa una segunda vez, para el otro lado")
+	check(not is_instance_valid(c) and m.hud.visible_arrows() == 0, "después de la vuelta se va (sin flecha)")
+	c = m.spawn_comet()
+	c.global_position = m.gun.global_position + Vector3(2.0, 1.0, 0.0)
 	c.set_physics_process(false)
 	c.set_meta("seen", true)
 	m.gun.freeze = false

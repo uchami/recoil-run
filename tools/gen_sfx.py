@@ -242,6 +242,25 @@ def lock():
     return out
 
 
+def combo(notes, tail):
+    """Combo: campanitas que suben (x2 dos notas, x3 tres más agudas y con brillo)."""
+    out = []
+    for fr in notes:
+        out += render(0.07, lambda t, fr=fr: (math.sin(2 * math.pi * fr * t) + 0.35 * math.sin(6 * math.pi * fr * t)) * env(t, 0.002, 0.06))
+    fr = notes[-1] * 2
+    out += render(tail, lambda t: (math.sin(2 * math.pi * fr * t) + 0.5 * math.sin(2 * math.pi * fr * 1.5 * t))
+                  * env(t, 0.002, tail * 0.45) * (1 + 0.3 * math.sin(2 * math.pi * 18 * t)))
+    return out
+
+
+def combo2():
+    return combo((784, 1047), 0.18)
+
+
+def combo3():
+    return combo((880, 1175, 1568), 0.32)
+
+
 SOUNDS = {
     "shot": (shot, 0.95), "empty": (empty, 0.6), "kill": (kill, 0.8), "headshot": (headshot, 0.9),
     "clank": (clank, 0.75), "hurt": (hurt, 0.7), "boing": (boing, 0.8), "chest_hit": (chest_hit, 0.8),
@@ -249,7 +268,7 @@ SOUNDS = {
     "screech": (screech, 0.5), "squeak": (squeak, 0.5), "chomp": (chomp, 0.85), "game_over": (game_over, 0.6),
     "land": (land, 0.6), "slowmo": (slowmo, 0.6), "flap": (flap, 0.4),
     "explosion": (explosion, 0.95), "engine": (engine, 0.5), "fanfare": (fanfare, 0.8),
-    "laser": (laser, 0.6), "lock": (lock, 0.8),
+    "laser": (laser, 0.6), "lock": (lock, 0.8), "combo2": (combo2, 0.7), "combo3": (combo3, 0.8),
 }
 
 if __name__ == "__main__":

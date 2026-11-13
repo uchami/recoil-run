@@ -30,6 +30,8 @@ var _hurt_flash: ColorRect
 var _powers_box: VBoxContainer
 var _perks: Label
 var _special_info: Label
+var _combo: Label # "COMBO x2", "COMBO x3"
+var _combo_hold_until := 0 # ms: hasta acá el combo que dio el poder no se borra
 var _market: Control
 var _market_box: VBoxContainer
 var _arrows: Control
@@ -93,6 +95,9 @@ void fragment() {
 	_dist = _label("0m", 96, GOLD, 0)
 	pill.add_child(_dist)
 	top.add_child(pill)
+	_combo = _label("", 64, Color("ffd23a"), 14)
+	_combo.visible = false
+	top.add_child(_combo)
 	_powers_box = VBoxContainer.new()
 	_powers_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	top.add_child(_powers_box)
@@ -644,6 +649,31 @@ func set_values(best: int, dist: int, ammo: int, infinite := false) -> void:
 	_dist.text = "%dm" % dist
 	_ammo.text = "∞" if infinite else str(ammo)
 	_ammo.add_theme_color_override("font_color", Color("ff6b6b") if ammo == 0 and not infinite else Color.WHITE)
+
+
+## Combo en pantalla: n < 2 lo esconde (salvo que el que dio el poder siga su
+## ratito: hold segundos). force lo esconde igual (game over).
+func set_combo(n: int, hold := 0.0, force := false) -> void:
+	var now := Time.get_ticks_msec()
+	if n < Config.COMBO_MIN_SHOW:
+		if force or now >= _combo_hold_until:
+			_combo.visible = false
+			_combo_hold_until = 0
+		return
+	_combo_hold_until = now + int(hold * 1000.0) if hold > 0.0 else 0
+	_combo.text = "COMBO x%d" % n
+	_combo.add_theme_color_override("font_color", Color("ffd23a") if n < 3 else Color("ff7a3a"))
+	_combo.visible = true
+	_combo.pivot_offset = _combo.size / 2.0
+	var tw := _combo.create_tween().set_ignore_time_scale(true) # (en slow-mo también)
+	_combo.scale = Vector2.ONE * (1.35 if n < 3 else 1.6)
+	tw.tween_property(_combo, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if hold > 0.0:
+		tw.tween_interval(maxf(hold - 0.25, 0.0))
+		tw.tween_callback(func():
+			if _combo_hold_until != 0 and Time.get_ticks_msec() >= _combo_hold_until - 20:
+				_combo.visible = false
+				_combo_hold_until = 0)
 
 
 const POWER_LABELS := {"infinite": "∞ BALAS", "laser": "LÁSER", "untouchable": "★ INTOCABLE", "locked": "CANDADO: PESÁS x2",

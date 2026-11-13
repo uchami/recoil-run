@@ -40,6 +40,7 @@ const SPECIAL_STEP := {"chase": 1.6, "gallery": 0.4, "blackout": 2.0} # escalone
 const GALLERY_SPACING := Vector2(6.5, 9.5)
 const BLACKOUT_SPACING := Vector2(5.0, 8.5)
 const CHASE_SPACING := Vector2(10.0, 16.0)
+const CHASE_AMMO_GAP := 0.9 # m entre las balas de un grupito
 const BOSS_ARENA := 34.0 # cada jefe va a BOSS_AT[jefe] del principio de la arena
 const BOSSES := ["robot", "mole", "zeppelin", "wall", "duel"]
 const BOSS_AT := {"robot": 24.0, "mole": 19.0, "zeppelin": 20.0, "wall": 31.0, "duel": 20.0}
@@ -54,6 +55,7 @@ var _x := START_X
 var _top := 0.0
 var _count := 0
 var _next_item_x := 0.0
+var _next_ammo_x := 0.0 # persecución: dónde va el próximo grupito de balas
 var _next_special_x: float = SPECIAL_FIRST
 var _special_end := 0.0
 var _special_bag: Array = []
@@ -119,6 +121,7 @@ func _start_special() -> void:
 	if special == "boss":
 		boss_kind = _pick_boss()
 	_next_item_x = _x + 4.0
+	_next_ammo_x = _x + 3.0
 
 
 func _end_special() -> void:
@@ -219,6 +222,14 @@ func _special_items(b: Dictionary) -> void:
 			"chase": # pocos: obstáculos y balas
 				b.items.append({"type": ["plain", "plain", "sword"][rng.randi_range(0, 2)], "x": x, "y": b.top})
 		_next_item_x += rng.randf_range(spacing.x, spacing.y)
+	if kind == "chase": # balas durante la persecución: grupitos flotando en el camino
+		var width := (Config.CHASE_AMMO_GROUP - 1) * CHASE_AMMO_GAP
+		while _next_ammo_x + width <= b.x1 - ITEM_EDGE:
+			var y: float = b.top + rng.randf_range(Config.CHASE_AMMO_HEIGHT.x, Config.CHASE_AMMO_HEIGHT.y)
+			for i in Config.CHASE_AMMO_GROUP: # en un arquito
+				var k := i / maxf(Config.CHASE_AMMO_GROUP - 1.0, 1.0)
+				b.items.append({"type": "ammo", "x": _next_ammo_x + i * CHASE_AMMO_GAP, "y": y + sin(k * PI) * 0.35})
+			_next_ammo_x += rng.randf_range(Config.CHASE_AMMO_EVERY.x, Config.CHASE_AMMO_EVERY.y)
 
 
 func _finish_block(length: float, kind: String) -> Dictionary:

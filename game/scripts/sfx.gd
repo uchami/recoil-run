@@ -4,7 +4,7 @@ extends Node
 
 const NAMES := ["shot", "empty", "kill", "headshot", "clank", "hurt", "boing", "chest_hit", "chest_open",
 	"pickup", "powerup", "screech", "squeak", "chomp", "game_over", "land", "slowmo", "flap", "explosion", "engine",
-	"fanfare", "laser", "lock"]
+	"fanfare", "laser", "lock", "combo2", "combo3"]
 const POOL := 14
 
 var _streams := {}
