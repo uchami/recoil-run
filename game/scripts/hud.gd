@@ -6,6 +6,7 @@ signal retry_pressed
 signal tuning_changed
 signal test_level(kind: String) # solo para probar: reinicia con un nivel especial
 signal test_power(power: String) # solo para probar: da un poder
+signal dev_toggled(unlocked: bool) # se desbloquearon/bloquearon los ajustes de desarrollo
 signal market_buy(item: String) # ver Main.MARKET_ITEMS
 signal market_close
 
@@ -26,6 +27,8 @@ var _over_dist: Label
 var _over_stats: HBoxContainer
 var _over_board: GridContainer
 var _tune_panel: PanelContainer
+var _tune_open: Button # botón AJUSTES: solo se ve con los ajustes desbloqueados
+var _title_taps: Array[int] = [] # ms de los últimos toques al título (gesto secreto)
 var _hurt_flash: ColorRect
 var _powers_box: VBoxContainer
 var _perks: Label
@@ -128,7 +131,16 @@ void fragment() {
 	_start.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_start.add_theme_constant_override("separation", 14)
 	_root.add_child(_start)
-	_start.add_child(_label("RECOIL RUN", 84, Color.WHITE, 16))
+	var title := _label("RECOIL RUN", 84, Color.WHITE, 16)
+	# Gesto secreto (sin pista en la UI): 7 toques seguidos al título desbloquean o
+	# bloquean los ajustes de desarrollo. El título se come esos toques (no dispara).
+	title.mouse_filter = Control.MOUSE_FILTER_STOP
+	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			title.accept_event()
+			title_tap())
+	_start.add_child(title)
 	var hint := _label("Tocá para disparar", 42, Color.WHITE, 10)
 	_start.add_child(hint)
 	var tw := create_tween().set_loops()
@@ -278,6 +290,8 @@ func _build_tuning() -> void:
 	open_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	open_btn.offset_right = -20
 	open_btn.offset_top = 20
+	open_btn.visible = Tuning.dev_unlocked # bloqueado por defecto (ver title_tap)
+	_tune_open = open_btn
 	_root.add_child(open_btn)
 
 	_tune_panel = PanelContainer.new()
@@ -289,7 +303,7 @@ func _build_tuning() -> void:
 	_tune_panel.add_theme_stylebox_override("panel", _pill_style(Color(0.16, 0.06, 0.22, 0.92), 32))
 	_tune_panel.visible = false
 	_root.add_child(_tune_panel)
-	open_btn.pressed.connect(func(): _tune_panel.visible = not _tune_panel.visible)
+	open_btn.pressed.connect(func(): _tune_panel.visible = Tuning.dev_unlocked and not _tune_panel.visible)
 
 	# Con scroll: en pantallas bajas no entra todo.
 	var scroll := ScrollContainer.new()
@@ -378,6 +392,42 @@ func _build_tuning() -> void:
 		tuning_changed.emit())
 	physics.add_child(reset)
 	_sync_tuning()
+
+
+const DEV_TAPS := 7 # toques al título para desbloquear/bloquear los ajustes
+const DEV_TAPS_MS := 3000 # en menos de este tiempo
+
+
+## Un toque al título de la pantalla de inicio. Con DEV_TAPS toques dentro de
+## DEV_TAPS_MS cambia el bloqueo de los ajustes de desarrollo (y lo guarda).
+func title_tap(now_ms := -1) -> void:
+	if now_ms < 0:
+		now_ms = Time.get_ticks_msec()
+	_title_taps.append(now_ms)
+	while not _title_taps.is_empty() and now_ms - _title_taps[0] > DEV_TAPS_MS:
+		_title_taps.pop_front()
+	if _title_taps.size() < DEV_TAPS:
+		return
+	_title_taps.clear()
+	Tuning.set_dev_unlocked(not Tuning.dev_unlocked)
+	_tune_open.visible = Tuning.dev_unlocked
+	_tune_panel.visible = false
+	_sync_tuning()
+	toast("AJUSTES DESBLOQUEADOS" if Tuning.dev_unlocked else "AJUSTES ESCONDIDOS")
+	dev_toggled.emit(Tuning.dev_unlocked)
+
+
+## Cartel breve en el medio de la pantalla.
+func toast(text: String) -> void:
+	var l := _label(text, 48, GOLD, 14)
+	l.set_anchors_preset(Control.PRESET_CENTER)
+	l.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	l.grow_vertical = Control.GROW_DIRECTION_BOTH
+	_root.add_child(l)
+	var tw := create_tween().set_ignore_time_scale()
+	tw.tween_interval(1.2)
+	tw.tween_property(l, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(l.queue_free)
 
 
 func _sync_tuning() -> void:

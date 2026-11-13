@@ -163,11 +163,15 @@ func _ready() -> void:
 	add_child(hud)
 	hud.retry_pressed.connect(_retry)
 	hud.tuning_changed.connect(_apply_tuning)
+	hud.dev_toggled.connect(func(_on: bool): _apply_tuning()) # al bloquear vuelve la física por defecto
+	# (los botones de prueba solo existen con los ajustes desbloqueados; igual se chequea)
 	hud.test_level.connect(func(kind: String):
+		if not Tuning.dev_unlocked:
+			return
 		Level.debug_special = kind
 		restart())
 	hud.test_power.connect(func(power: String):
-		if state != State.PLAYING:
+		if state != State.PLAYING or not Tuning.dev_unlocked:
 			return
 		if power == "comet": # (para probar: que pase uno ya, esté donde esté)
 			spawn_comet()

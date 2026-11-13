@@ -11,6 +11,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	await process_frame
+	Tuning.save_path = "user://test_tuning.cfg" # no pisar los ajustes reales
 	Tuning.reset(false) # valores por defecto, ignora lo guardado desde el panel
 	Records.save_path = "user://test_save.cfg" # no pisar los récords reales
 	Records.reset()
@@ -77,6 +78,7 @@ func _run() -> void:
 	await test_pierce()
 	await test_market()
 	await test_settings_panel()
+	await test_dev_lock()
 	await test_perks()
 	await test_pierce_slowmo()
 	await test_arrows()
@@ -1570,6 +1572,85 @@ func test_pierce() -> void:
 		else:
 			check(dead == 1, "normal: mata uno (%d)" % dead)
 		await despawn(m)
+
+
+## Ajustes de desarrollo: bloqueados por defecto, 7 toques al título en < 3 s los
+## desbloquean (y queda guardado), el mismo gesto los vuelve a esconder.
+func test_dev_lock() -> void:
+	print("ajustes bloqueados / gesto secreto")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Tuning.save_path))
+	Tuning.load_saved(true)
+	check(not Tuning.dev_unlocked, "sin guardado: bloqueados por defecto")
+	var m := await spawn()
+	var hud = m.hud
+	check(not hud._tune_open.visible, "bloqueado: no se ve el botón AJUSTES")
+	hud._tune_open.pressed.emit()
+	check(not hud._tune_panel.visible, "bloqueado: el panel no abre")
+	Tuning.set_value("gravity", 20.0)
+	check(is_equal_approx(Tuning.values.gravity, Tuning.DEFAULTS.gravity), "bloqueado: no se puede cambiar la física")
+	var lvl := Level.debug_special
+	hud.test_level.emit("chest")
+	check(Level.debug_special == lvl and not m.restarting, "bloqueado: PROBAR NIVEL no hace nada")
+	# gesto lento o incompleto: no desbloquea
+	for i in 6:
+		hud.title_tap(100000 + i * 100)
+	check(not Tuning.dev_unlocked, "6 toques no alcanzan")
+	for i in 7:
+		hud.title_tap(200000 + i * 600) # 3.6 s en total
+	check(not Tuning.dev_unlocked, "7 toques en más de 3 s no alcanzan")
+	hud._title_taps.clear()
+	# toques de verdad (como llegan del dedo o el mouse) sobre el título
+	var title: Label = hud._start.get_child(0)
+	check(title.text == "RECOIL RUN" and title.mouse_filter == Control.MOUSE_FILTER_STOP, "el título recibe los toques")
+	await process_frame
+	# (push_input va en coordenadas de la ventana: en headless es chiquita y estirada)
+	var at := root.get_final_transform() * title.get_global_rect().get_center()
+	for i in 7: # por el viewport, como un click o un toque (emulate_mouse_from_touch)
+		for pressed in [true, false]:
+			var ev := InputEventMouseButton.new()
+			ev.button_index = MOUSE_BUTTON_LEFT
+			ev.pressed = pressed
+			ev.position = at
+			ev.global_position = at
+			root.push_input(ev)
+	check(Tuning.dev_unlocked, "7 toques seguidos al título: desbloqueados")
+	check(hud._tune_open.visible, "desbloqueado: aparece el botón AJUSTES")
+	check(m._queued_shots == 0 and m.state == m.State.READY, "los toques al título no disparan")
+	hud._tune_open.pressed.emit()
+	check(hud._tune_panel.visible, "desbloqueado: el panel abre")
+	Tuning.set_value("gravity", 20.0)
+	check(is_equal_approx(Tuning.values.gravity, 20.0), "desbloqueado: la física se puede tocar")
+	await despawn(m)
+	# persistencia: se relee del archivo (como al abrir el juego de nuevo)
+	Tuning.load_saved(true)
+	check(Tuning.dev_unlocked, "el desbloqueo quedó guardado")
+	check(is_equal_approx(Tuning.values.gravity, 20.0), "desbloqueado: la física tocada se conserva")
+	m = await spawn()
+	hud = m.hud
+	check(hud._tune_open.visible, "al volver a abrir sigue el botón AJUSTES")
+	# el mismo gesto los vuelve a esconder y la física vuelve a la de siempre
+	for i in 7:
+		hud.title_tap(300000 + i * 300)
+	check(not Tuning.dev_unlocked, "el mismo gesto vuelve a bloquear")
+	check(not hud._tune_open.visible and not hud._tune_panel.visible, "re-bloqueado: sin botón ni panel")
+	check(Tuning.is_default(), "re-bloqueado: física por defecto")
+	var g: float = PhysicsServer3D.area_get_param(m.get_world_3d().space, PhysicsServer3D.AREA_PARAM_GRAVITY)
+	check(is_equal_approx(g, Tuning.DEFAULTS.gravity), "re-bloqueado: la gravedad del mundo vuelve (%.1f)" % g)
+	await despawn(m)
+	Tuning.load_saved(true)
+	check(not Tuning.dev_unlocked and Tuning.is_default(), "el re-bloqueo quedó guardado")
+	# física tocada guardada de antes + bloqueado: se usan los valores por defecto
+	var cf := ConfigFile.new()
+	cf.set_value("tuning", "gravity", 25.0)
+	cf.set_value("tuning", "recoil_speed", 18.0)
+	cf.set_value("meta", "version", Tuning.VERSION)
+	cf.save(Tuning.save_path)
+	Tuning.load_saved(true)
+	check(not Tuning.dev_unlocked and Tuning.is_default(), "física hackeada guardada + bloqueado: valores por defecto")
+	cf = ConfigFile.new()
+	cf.load(Tuning.save_path)
+	check(is_equal_approx(float(cf.get_value("tuning", "gravity", 0.0)), Tuning.DEFAULTS.gravity), "y el guardado queda limpio")
+	Tuning.reset(false)
 
 
 ## AJUSTES: los sliders van escondidos; PROBAR COFRE / TRAMPA pone uno apenas arrancás.

@@ -1,8 +1,13 @@
 class_name Tuning
 ## Números de feel del vuelo, ajustables en vivo desde el panel AJUSTES del juego.
 ## Se guardan en el teléfono (user://tuning.cfg). Uso: Tuning.values.gravity
+##
+## El panel AJUSTES es solo para desarrollo y arranca bloqueado: sin desbloquear,
+## la física es siempre la de DEFAULTS (aunque haya valores tocados guardados de antes).
+## Se desbloquea (y se vuelve a bloquear) con un gesto secreto en la pantalla de
+## inicio (ver Hud.title_tap); el estado queda guardado en este mismo archivo.
 
-const SAVE_PATH := "user://tuning.cfg"
+static var save_path := "user://tuning.cfg" # los tests usan otro archivo
 # Subir esto cuando cambia un valor por defecto que tiene que pisar lo guardado.
 # Cada versión lista las claves que se vuelven a poner en su valor por defecto.
 const VERSION := 2
@@ -39,29 +44,60 @@ const SLIDERS := [
 ]
 
 static var values := DEFAULTS.duplicate()
+static var dev_unlocked := false # ajustes de desarrollo visibles en este dispositivo
 static var _loaded := false
 
 
-## Carga lo guardado en el teléfono (una sola vez por sesión).
-static func load_saved() -> void:
-	if _loaded:
+## Carga lo guardado en el teléfono (una sola vez por sesión; force: releer).
+static func load_saved(force := false) -> void:
+	if _loaded and not force:
 		return
 	_loaded = true
+	values = DEFAULTS.duplicate()
+	dev_unlocked = false
 	var cf := ConfigFile.new()
-	if cf.load(SAVE_PATH) == OK:
-		for k in DEFAULTS:
-			values[k] = float(cf.get_value("tuning", k, DEFAULTS[k]))
-		var saved_version := int(cf.get_value("meta", "version", 1))
-		if saved_version < VERSION:
-			for v in MIGRATIONS:
-				if v > saved_version:
-					for k in MIGRATIONS[v]:
-						values[k] = DEFAULTS[k]
-			_save()
+	if cf.load(save_path) != OK:
+		return
+	dev_unlocked = bool(cf.get_value("dev", "unlocked", false))
+	var dirty := false
+	for k in DEFAULTS:
+		values[k] = float(cf.get_value("tuning", k, DEFAULTS[k]))
+	var saved_version := int(cf.get_value("meta", "version", 1))
+	if saved_version < VERSION:
+		for v in MIGRATIONS:
+			if v > saved_version:
+				for k in MIGRATIONS[v]:
+					values[k] = DEFAULTS[k]
+		dirty = true
+	# Bloqueado: nada de física tocada (ni la que quedó guardada de antes del bloqueo).
+	if not dev_unlocked and not is_default():
+		values = DEFAULTS.duplicate()
+		dirty = true
+	if dirty:
+		_save()
+
+
+static func is_default() -> bool:
+	for k in DEFAULTS:
+		if not is_equal_approx(float(values[k]), float(DEFAULTS[k])):
+			return false
+	return true
 
 
 static func set_value(key: String, value: float) -> void:
+	if not dev_unlocked:
+		return
 	values[key] = value
+	_save()
+
+
+## Desbloquea o bloquea los ajustes de desarrollo y lo guarda. Al bloquear,
+## la física vuelve a los valores por defecto.
+static func set_dev_unlocked(on: bool) -> void:
+	load_saved()
+	dev_unlocked = on
+	if not on:
+		values = DEFAULTS.duplicate()
 	_save()
 
 
@@ -77,4 +113,5 @@ static func _save() -> void:
 	for k in DEFAULTS:
 		cf.set_value("tuning", k, values[k])
 	cf.set_value("meta", "version", VERSION)
-	cf.save(SAVE_PATH)
+	cf.set_value("dev", "unlocked", dev_unlocked)
+	cf.save(save_path)

@@ -19,6 +19,10 @@ godot --headless --path . -s res://tests/smoke.gd   # pruebas de física y regla
 godot --path . -- --demo-headshot                # dispara solo al primer headshot (para grabar el slow-mo)
 ```
 
+Los ajustes de desarrollo (física, PROBAR NIVEL/JEFE/PODER) están escondidos por defecto: se desbloquean en cada dispositivo
+tocando **7 veces seguidas el título "RECOIL RUN"** de la pantalla de inicio (en menos de 3 s); el mismo gesto los vuelve a
+esconder. Más detalle abajo, en AJUSTES.
+
 ## Exportar
 
 **Web:** se juega en **https://recoil.urichami.xyz**. Cada push a `main` lo exporta y lo publica solo en
@@ -140,6 +144,12 @@ Al salir: premio según cómo te fue (si fallaste, nada).
 | Zepelín | Pinchale las 4 bolsas de gas rojas (adelante, arriba, abajo, atrás); cada una lo hace bajar. En el casco rebota | Te tira bombas (-3 si te explotan cerca) |
 | La muralla | Avanza hacia vos para tirarte al pozo que hay antes de la arena. Abajo es de ladrillos (un tiro rompe uno), arriba acero: abrile un agujero y pasala. Cada tiro para adelante te empuja para atrás | Te empuja al pozo (perdés) |
 | Duelo | Un arma roja que se mueve con retroceso igual que vos: pegale 3 veces (después de cada golpe parpadea y un ratito no cuenta) | Te apunta (línea finita) y te dispara (-3) |
+
+**AJUSTES está escondido por defecto** (para que quien juegue el link no pueda tocar la física ni saltar a niveles): no hay
+botón ni atajo. Para verlo en un dispositivo, en la pantalla de inicio **tocá 7 veces seguidas el título "RECOIL RUN"
+(en menos de 3 s)**: sale "AJUSTES DESBLOQUEADOS" y aparece el botón arriba a la derecha. Queda guardado en ese dispositivo
+(`user://tuning.cfg`, sección `[dev]`); el mismo gesto lo vuelve a esconder ("AJUSTES ESCONDIDOS") y la física vuelve a los
+valores por defecto. Con AJUSTES bloqueado la física es siempre la de `tuning.gd`, aunque haya valores tocados guardados de antes.
 
 En AJUSTES hay botones de prueba: **PROBAR NIVEL** (reinicia con ese nivel especial, ventilador, cohete, mercado, cofre o cofre trampa justo después del arranque),
 **PROBAR JEFE** (reinicia con ese jefe) y **PROBAR PODER** (te da el poder en el momento; COMETA hace pasar uno). Para correr solo algunos tests:
